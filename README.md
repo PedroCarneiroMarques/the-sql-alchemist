@@ -2,27 +2,27 @@
 
 The SQL Alchemist is a local Business Intelligence assistant that converts natural-language questions into DuckDB SQL over flight operations data.[file:1126]
 
-It supports two interfaces:[file:1126]
+It supports two interfaces:
 
-- A terminal CLI in `src/main.py`.[file:1126]
-- A Streamlit web app in `src/app.py`.[file:1126]
+- A terminal CLI in `src/main.py`.
+- A Streamlit web app in `src/app.py`.
 
-The project uses local Ollama models for NL-to-SQL generation and includes validation plus keyword-based fallback logic when model output is invalid or unavailable.[file:1126]
+The project uses local Ollama models for NL-to-SQL generation and includes validation plus keyword-based fallback logic when model output is invalid or unavailable.
 
 ---
 
 ## Features
 
-- Natural language to SQL over a local DuckDB dataset.[file:1126]
-- Shared configuration through `config.py`.[file:1126]
-- Streamlit UI with model selection, SQL preview, result rendering, history export, and replay.[file:1126]
-- CLI experience with rich terminal formatting.[file:1127]
+- Natural language to SQL over a local DuckDB dataset.
+- Shared configuration through `config.py`.
+- Streamlit UI with model selection, SQL preview, result rendering, history export, and replay.
+- CLI experience with rich terminal formatting.
 - Business analysis layers:
   - Watchdog, for anomaly and data-quality style detection.
   - Airline Wars, for ranking and window-function comparisons.
   - Cost of Chaos, for disruption cost estimation.
   - Result Explanation, for automatic narrative summaries.
-- Keyword fallback SQL when model generation fails.[file:1126]
+- Keyword fallback SQL when model generation fails.
 
 ---
 
@@ -46,15 +46,15 @@ chab_ai_engine/
     └── DEPENDENCIES.md
 ```
 
-This structure keeps the runtime code in `src/`, documentation in `docs/`, and notebook material in `notebooks/`, while preserving the dataset path expected by the app: `data/flights.csv`.[file:1126]
+This structure keeps the runtime code in `src/`, documentation in `docs/`, and notebook material in `notebooks/`, while preserving the dataset path expected by the app: `data/flights.csv`.
 
 ---
 
 ## Data model
 
-The dataset is loaded into an in-memory DuckDB table named `flights`.[file:1126]
+The dataset is loaded into an in-memory DuckDB table named `flights`.
 
-Expected columns:[file:1126]
+Expected columns:
 
 - `flight_id`
 - `airline`
@@ -65,17 +65,17 @@ Expected columns:[file:1126]
 - `latency_minutes`
 - `status`
 
-The `status` field is expected to contain values such as `On-Time`, `Delayed`, and `Cancelled`.[file:1126]
+The `status` field is expected to contain values such as `On-Time`, `Delayed`, and `Cancelled`.
 
 ---
 
 ## Requirements
 
-- Python 3.10+.[file:1126]
-- Ollama installed locally.[file:1126]
-- At least one local model available, for example `qwen3.6:27b`.[file:1126]
+- Python 3.10+.
+- Ollama installed locally.
+- At least one local model available, for example `qwen3.6:27b`.
 
-Python dependencies used by the project include `duckdb`, `rich`, `ollama`, `streamlit`, `plotly`, and `pandas`.[file:1127][file:1128]
+Python dependencies used by the project include `duckdb`, `rich`, `ollama`, `streamlit`, `plotly`, and `pandas`.
 
 ---
 
@@ -94,7 +94,7 @@ ollama pull qwen3.6:27b
 ollama serve
 ```
 
-This project is designed for local execution and does not require a cloud dependency for NL-to-SQL behavior.[file:1126]
+This project is designed for local execution and does not require a cloud dependency for NL-to-SQL behavior.
 
 ---
 
@@ -106,9 +106,9 @@ From the project root:
 python3 src/main.py
 ```
 
-Inside the terminal experience, you can ask questions in plain English and exit with `quit`, `exit`, or `q`.[file:1126]
+Inside the terminal experience, you can ask questions in plain English and exit with `quit`, `exit`, or `q`.
 
-Example questions:[file:1126]
+Example questions:
 
 - `Which airlines have the highest average latency?`
 - `How many flights were cancelled by airline?`
@@ -125,15 +125,15 @@ From the project root:
 python3 -m streamlit run src/app.py
 ```
 
-The Streamlit app supports installed-model picking, manual model input fallback, generated SQL preview, results rendering, optional charting, session history, SQL replay, and export to JSON or CSV.[file:1126]
+The Streamlit app supports installed-model picking, manual model input fallback, generated SQL preview, results rendering, optional charting, session history, SQL replay, and export to JSON or CSV.
 
 ---
 
 ## Reliability
 
-To improve stability, the project sanitizes model output, accepts only `SELECT` queries, and applies keyword-based fallback SQL when generated output is invalid or unavailable.[file:1126]
+To improve stability, the project sanitizes model output, accepts only `SELECT` queries, and applies keyword-based fallback SQL when generated output is invalid or unavailable.
 
-This avoids always returning the same default query shape and makes the app more robust during local model failures.[file:1126]
+This avoids always returning the same default query shape and makes the app more robust during local model failures.
 
 ---
 
@@ -141,15 +141,15 @@ This avoids always returning the same default query shape and makes the app more
 
 ### Model not found
 
-If you get `model ... not found (404)`, pull the model locally with Ollama or choose an installed model from the Streamlit interface.[file:1126]
+If you get `model ... not found (404)`, pull the model locally with Ollama or choose an installed model from the Streamlit interface.
 
 ### Could not fetch local Ollama models
 
-Ensure `ollama serve` is running locally.[file:1126]
+Ensure `ollama serve` is running locally.
 
 ### File does not exist
 
-Run commands from the project root so paths like `src/app.py` and `data/flights.csv` resolve correctly.[file:1126]
+Run commands from the project root so paths like `src/app.py` and `data/flights.csv` resolve correctly.
 
 ### ModuleNotFoundError
 
