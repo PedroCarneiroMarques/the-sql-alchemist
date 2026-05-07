@@ -73,7 +73,7 @@ The `status` field is expected to contain values such as `On-Time`, `Delayed`, a
 
 - Python 3.10+.
 - Ollama installed locally.
-- At least one local model available, for example `qwen3.6:27b`.
+- At least one local model available, for example `mistral:7b`.
 
 Python dependencies used by the project include `duckdb`, `rich`, `ollama`, `streamlit`, `plotly`, and `pandas`.
 
@@ -90,7 +90,7 @@ python3 -m pip install -r requirements.txt
 Optional Ollama setup:
 
 ```bash
-ollama pull qwen3.6:27b
+ollama pull mistral:7b
 ollama serve
 ```
 
