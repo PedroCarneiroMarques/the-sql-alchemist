@@ -1,6 +1,6 @@
 # The SQL Alchemist
 
-The SQL Alchemist is a local Business Intelligence assistant that converts natural-language questions into DuckDB SQL over flight operations data.[file:1126]
+The SQL Alchemist is a local Business Intelligence assistant that converts natural-language questions into DuckDB SQL over flight operations data.
 
 It supports two interfaces:
 
