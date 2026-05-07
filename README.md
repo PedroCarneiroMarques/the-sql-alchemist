@@ -163,8 +163,8 @@ python3 -m pip install -r requirements.txt
 
 ## Notes
 
-- This project is intended for local execution.[file:1126]
-- Query quality depends on both model quality and prompt specificity.[file:1126]
+- This project is intended for local execution.
+- Query quality depends on both model quality and prompt specificity.
 - The notebook version in `notebooks/main.ipynb` documents the CLI architecture and analysis layers discussed during development.
 
 ---
