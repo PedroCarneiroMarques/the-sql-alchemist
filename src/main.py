@@ -34,9 +34,9 @@ except Exception:
             ],
         }
 
-
 CFG = get_config()
 console = Console()
+
 APP_DIR = Path(__file__).resolve().parent
 DATA_PATH = Path(CFG["DATA_PATH"])
 OLLAMA_HOST = CFG["OLLAMA_HOST"]
@@ -68,10 +68,27 @@ class ChatBI:
         self._load_table()
 
     def _load_table(self):
+        """
+        Força o esquema da tabela flights ao ler o CSV, evitando tipos LIST/VARCHAR[].
+        """
         self.db.execute(
             """
             CREATE OR REPLACE TABLE flights AS
-            SELECT * FROM read_csv_auto(?)
+            SELECT *
+            FROM read_csv_auto(
+                ?,
+                header = true,
+                types = {
+                    'flight_id': 'BIGINT',
+                    'airline': 'VARCHAR',
+                    'origin': 'VARCHAR',
+                    'destination': 'VARCHAR',
+                    'departure_time': 'VARCHAR',
+                    'arrival_time': 'VARCHAR',
+                    'latency_minutes': 'DOUBLE',
+                    'status': 'VARCHAR'
+                }
+            )
             """,
             [self.csv_path],
         )
@@ -195,8 +212,8 @@ Rules:
         if "cost" in q or "expensive" in q:
             return (
                 "SELECT airline, "
-                "SUM(CASE WHEN status = 'Delayed' THEN latency_minutes * 50 ELSE 0 END) + "
-                "SUM(CASE WHEN status = 'Cancelled' THEN 200 ELSE 0 END) AS estimated_cost "
+                f"SUM(CASE WHEN status = 'Delayed' THEN latency_minutes * {DEFAULT_DELAY_COST_PER_MINUTE} ELSE 0 END) + "
+                f"SUM(CASE WHEN status = 'Cancelled' THEN {DEFAULT_CANCELLATION_COST} ELSE 0 END) AS estimated_cost "
                 "FROM flights GROUP BY airline ORDER BY estimated_cost DESC"
             )
 
@@ -260,9 +277,20 @@ def safe_get(record: dict[str, Any], key: str, default: Any = None) -> Any:
     return default if value is None else value
 
 
-def safe_sorted_first_record(df: pd.DataFrame, sort_col: str, ascending: bool = False) -> dict[str, Any]:
-    if df is None or df.empty or sort_col not in df.columns:
+def safe_sorted_first_record(
+    df: pd.DataFrame,
+    sort_col: str | list[str],
+    ascending: bool = False,
+) -> dict[str, Any]:
+    if df is None or df.empty:
         return {}
+
+    if isinstance(sort_col, (list, tuple)):
+        sort_col = next((c for c in sort_col if isinstance(c, str) and c in df.columns), None)
+
+    if not sort_col or sort_col not in df.columns:
+        return {}
+
     ordered = df.sort_values(sort_col, ascending=ascending).reset_index(drop=True)
     records = ordered.head(1).to_dict("records")
     return records if records else {}
@@ -283,11 +311,16 @@ def safe_sorted_top_n_records(
 def detect_entity_column(df: pd.DataFrame, preferred: list[str] | None = None) -> Optional[str]:
     if df is None or df.empty:
         return None
+
     preferred = preferred or ["airline", "destination", "origin", "route", "status"]
     for col in preferred:
         if col in df.columns:
             return col
-    object_cols = [c for c in df.columns if df[c].dtype == "object" or str(df[c].dtype).startswith("string")]
+
+    object_cols = [
+        c for c in df.columns
+        if df[c].dtype == "object" or str(df[c].dtype).startswith("string")
+    ]
     return object_cols if object_cols else None
 
 
@@ -304,16 +337,24 @@ def add_cost_columns(
     cancellation_cost: int = 200,
 ) -> pd.DataFrame:
     df = df.copy()
-    df["delay_cost_eur"] = 0
-    df["cancellation_cost_eur"] = 0
+
+    if df.empty:
+        df["delay_cost_eur"] = pd.Series(dtype="float64")
+        df["cancellation_cost_eur"] = pd.Series(dtype="float64")
+        df["total_cost_eur"] = pd.Series(dtype="float64")
+        return df
+
+    df["delay_cost_eur"] = 0.0
+    df["cancellation_cost_eur"] = 0.0
 
     delayed_mask = df["status"].eq("Delayed")
     cancelled_mask = df["status"].eq("Cancelled")
 
     df.loc[delayed_mask, "delay_cost_eur"] = (
-        df.loc[delayed_mask, "latency_minutes"].fillna(0) * delay_cost_per_minute
+        pd.to_numeric(df.loc[delayed_mask, "latency_minutes"], errors="coerce").fillna(0)
+        * delay_cost_per_minute
     )
-    df.loc[cancelled_mask, "cancellation_cost_eur"] = cancellation_cost
+    df.loc[cancelled_mask, "cancellation_cost_eur"] = float(cancellation_cost)
     df["total_cost_eur"] = df["delay_cost_eur"] + df["cancellation_cost_eur"]
     return df
 
@@ -377,32 +418,40 @@ def add_watchdog_columns(
     return add_cost_columns(df, delay_cost_per_minute, cancellation_cost)
 
 
+def _escape_literal(value: Any) -> str:
+    """
+    Garante string simples para injetar em literal SQL:
+    - Se vier lista/tuplo, usa o primeiro elemento.
+    - Converte para str e escapa aspas simples.
+    """
+    if isinstance(value, (list, tuple)):
+        value = value if value else ""
+    value_str = str(value)
+    return value_str.replace("'", "''")
+
+
 def get_airline_wars(
     bi: ChatBI,
-    selected_airlines: list[str],
     airline_a: str,
     airline_b: str,
     selected_destination: str,
     delay_cost_per_minute: int,
     cancellation_cost: int,
 ) -> pd.DataFrame:
-    params = []
-    where_clauses = []
-
-    if selected_airlines:
-        placeholders = ",".join(["?"] * len(selected_airlines))
-        where_clauses.append(f"airline IN ({placeholders})")
-        params.extend(selected_airlines)
-
-    where_clauses.append("destination = ?")
-    params.append(selected_destination)
-    where_sql = "WHERE " + " AND ".join(where_clauses)
+    """
+    Compara airline_a vs airline_b num destino concreto.
+    Evita binding de parâmetros no IN, usando literals escapados.
+    """
+    a = _escape_literal(airline_a)
+    b = _escape_literal(airline_b)
+    dest = _escape_literal(selected_destination)
 
     query = f"""
     WITH route_base AS (
         SELECT *
         FROM flights
-        {where_sql}
+        WHERE airline IN ('{a}', '{b}')
+          AND destination = '{dest}'
     ),
     airline_metrics AS (
         SELECT
@@ -412,8 +461,8 @@ def get_airline_wars(
             AVG(COALESCE(latency_minutes, 0)) AS avg_latency,
             AVG(CASE WHEN status = 'On-Time' THEN 1.0 ELSE 0.0 END) AS on_time_rate,
             AVG(CASE WHEN status = 'Cancelled' THEN 1.0 ELSE 0.0 END) AS cancellation_rate,
-            SUM(CASE WHEN status = 'Delayed' THEN COALESCE(latency_minutes, 0) * ? ELSE 0 END) +
-            SUM(CASE WHEN status = 'Cancelled' THEN ? ELSE 0 END) AS total_cost_eur
+            SUM(CASE WHEN status = 'Delayed' THEN COALESCE(latency_minutes, 0) * {delay_cost_per_minute} ELSE 0 END) +
+            SUM(CASE WHEN status = 'Cancelled' THEN {cancellation_cost} ELSE 0 END) AS total_cost_eur
         FROM route_base
         GROUP BY airline, destination
     ),
@@ -425,19 +474,18 @@ def get_airline_wars(
             PERCENT_RANK() OVER (PARTITION BY destination ORDER BY avg_latency ASC) AS latency_percent_rank
         FROM airline_metrics
     )
-    SELECT *
+    SELECT
+        *
     FROM ranked
-    WHERE airline IN (?, ?)
     ORDER BY avg_latency ASC
     """
 
-    params.extend([delay_cost_per_minute, cancellation_cost, airline_a, airline_b])
-    df = bi.dataframe(query, params)
+    df = bi.dataframe(query)
 
     if not df.empty:
-        df["on_time_rate_pct"] = df["on_time_rate"] * 100
-        df["cancellation_rate_pct"] = df["cancellation_rate"] * 100
-        df["latency_percent_rank_pct"] = df["latency_percent_rank"] * 100
+        df["on_time_rate_pct"] = pd.to_numeric(df["on_time_rate"], errors="coerce").fillna(0) * 100
+        df["cancellation_rate_pct"] = pd.to_numeric(df["cancellation_rate"], errors="coerce").fillna(0) * 100
+        df["latency_percent_rank_pct"] = pd.to_numeric(df["latency_percent_rank"], errors="coerce").fillna(0) * 100
 
     return df
 
@@ -447,8 +495,8 @@ def explain_dashboard(filtered_df: pd.DataFrame, cost_by_airline: pd.DataFrame) 
         return "No data is available for the current filters."
 
     total_flights = len(filtered_df)
-    avg_latency = filtered_df["latency_minutes"].fillna(0).mean()
-    total_cost = filtered_df["total_cost_eur"].sum()
+    avg_latency = pd.to_numeric(filtered_df["latency_minutes"], errors="coerce").fillna(0).mean()
+    total_cost = pd.to_numeric(filtered_df["total_cost_eur"], errors="coerce").fillna(0).sum()
 
     top_cost_record = safe_sorted_first_record(cost_by_airline, sort_col="total_cost_eur", ascending=False)
     top_cost_airline = safe_get(top_cost_record, "airline")
@@ -528,7 +576,7 @@ def explain_chat_result(question: str, df: pd.DataFrame) -> str:
         top_row = safe_sorted_first_record(df, top_metric, ascending=False)
         return (
             f"'{question}' returned {row_count} rows. "
-            f"{safe_get(top_row, entity_col, 'The leading entity')} leads on {top_metric.replace('_', ' ')}."
+            f"{safe_get(top_row, entity_col, 'The leading entity')} leads on {str(top_metric).replace('_', ' ')}."
         )
 
     return f"'{question}' returned {row_count} rows."
@@ -650,6 +698,7 @@ def run_cli(bi: ChatBI):
 
             print_kpis(bi, selected_airlines, filtered_df)
             console.print(explain_dashboard(filtered_df, cost_by_airline))
+
             print_dataframe(cost_by_airline, title="Cost of Chaos", max_rows=10)
 
             watchdog_cols = [
@@ -674,13 +723,12 @@ def run_cli(bi: ChatBI):
                 console.print("[yellow]Not enough data for Airline Wars.[/yellow]")
                 continue
 
-            airline_a = selected_airlines if len(selected_airlines) > 0 else all_airlines
+            airline_a = selected_airlines if selected_airlines else all_airlines
             airline_b = selected_airlines if len(selected_airlines) > 1 else all_airlines
             destination = all_destinations
 
             wars_df = get_airline_wars(
                 bi=bi,
-                selected_airlines=selected_airlines,
                 airline_a=airline_a,
                 airline_b=airline_b,
                 selected_destination=destination,
