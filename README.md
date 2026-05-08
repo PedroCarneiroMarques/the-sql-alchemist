@@ -204,6 +204,7 @@ LIMIT 200;
 
 ### Streamlit example
 
+<<<<<<< HEAD
 Add a screenshot here once uploaded to the repository:
 
 ```md
@@ -211,6 +212,14 @@ Add a screenshot here once uploaded to the repository:
 ```
 
 You can also add a CLI screenshot if you want to show both interfaces.
+=======
+Add screenshots here once uploaded to the repository:
+
+![Streamlit app screenshot](docs/images/streamlit-example.jpg)
+![CLI screenshot](docs/images/cli-example.jpg)
+
+You can also keep just one screenshot if you want the README to stay compact.
+>>>>>>> f0e000e (Refine README and remove secrets dependency)
 
 ---
 

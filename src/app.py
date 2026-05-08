@@ -8,16 +8,16 @@ import plotly.express as px
 import streamlit as st
 from ollama import Client
 
-from config import get_config
-
-CFG = get_config()
-
 st.set_page_config(
     page_title="Neural Flight Bridge",
     page_icon="✈️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+from config import get_config
+
+CFG = get_config()
 
 APP_DIR = Path(__file__).resolve().parent
 DATA_PATH = Path(CFG["DATA_PATH"])
@@ -165,7 +165,7 @@ Rules:
             sql = self._ensure_limit(sql)
             return True, sql, ""
         except Exception as exc:
-            return False, "", f"{model_name}: {exc}"
+            return False, "", f"{model_name}: model request failed"
 
     def _keyword_fallback_sql(self, question: str) -> str:
         q = question.lower()
@@ -223,7 +223,7 @@ Rules:
                         "attempt_errors": errors,
                     }
                 except Exception as exc:
-                    errors.append(f"{model_name}: SQL execution failed - {exc}")
+                    errors.append(f"{model_name}: SQL execution failed")
             else:
                 errors.append(err)
 
@@ -240,7 +240,7 @@ Rules:
                 "attempt_errors": errors,
             }
         except Exception as exc:
-            errors.append(f"fallback: {exc}")
+            errors.append("fallback: query generation failed")
             return {
                 "success": False,
                 "model": None,

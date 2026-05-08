@@ -1,63 +1,49 @@
-# Dependencies Documentation
+# Dependencies
 
-This project uses the Python packages listed in `requirements.txt`.
+This project runs locally and uses a small set of Python dependencies.
 
-## Core Runtime
+## Core runtime
 
-- `duckdb`  
-  In-memory analytics engine used to load and query `data/flights.csv` with SQL.
+- `duckdb` — in-memory analytical SQL engine for querying `flights.csv`.
+- `pandas` — dataframe handling and tabular transformations.
+- `streamlit` — web UI for the interactive analytics app.
+- `plotly` — charts and visual analytics in the Streamlit app.
+- `ollama` — local LLM client for natural-language-to-SQL generation.
+- `rich` — improved terminal output for the CLI version.
 
-- `ollama`  
-  Python client used to call local LLMs that convert natural language prompts into SQL and support model escalation.
+## Python version
 
-- `pandas`  
-  Used for dataframe handling, query results, notebook-friendly inspection, and chart preparation.
+Recommended:
+- Python 3.10 or newer
 
-## Interface Layers
+## Local model requirement
 
-- `rich`  
-  Provides styled CLI output for the terminal chat experience in `src/main.py`.
+The app is designed to work with local Ollama models. A recommended model chain is configured in `config.py`.
 
-- `streamlit`  
-  Powers the web UI in `src/app.py`, including filters, chat history, metrics, and query display.
-
-- `plotly`  
-  Generates charts in Streamlit for latency trends and airline impact views.
-
-## Why These Dependencies Exist
-
-The project now has three execution surfaces:
-
-1. **CLI** — natural language to SQL in terminal mode with Rich tables.
-2. **Streamlit app** — interactive dashboard and chat UI.
-3. **Notebook** — reference document with markdown + code blocks and notebook-friendly query execution.
-
-Because of this, the dependency set supports:
-
-- local analytics via DuckDB
-- local model inference via Ollama
-- dataframe manipulation via pandas
-- CLI rendering via Rich
-- web UI via Streamlit
-- charting via Plotly
+Example models:
+- `mistral:7b`
+- `phi4:14b`
+- `qwen2.5-coder:14b`
+- `gemma4:26b`
+- `qwen3.6:27b`
+- `qwen3.6:35b-a3b`
+- `deepseek-r1:8b`
 
 ## Installation
-
-From the `chab_ai_engine` folder:
 
 ```bash
 python3 -m pip install -r requirements.txt
 ```
 
-## Ollama Requirement
-
-An Ollama server must be available locally, and at least one model must be pulled.
-
-Example:
+## Optional Ollama setup
 
 ```bash
-ollama pull mistral:7b
+ollama pull qwen3.6:27b
 ollama serve
 ```
 
-The system is designed to work best when several local models are available, because it can escalate from faster/smaller models to stronger ones when needed.
+## Notes
+
+- The project is local-first and does not require a cloud database.
+- The Streamlit interface and CLI share the same analytical foundation.
+- The CSV dataset is loaded into DuckDB for fast analytical queries.
