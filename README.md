@@ -13,7 +13,7 @@ The project uses local Ollama models for NL-to-SQL generation and includes valid
 
 ## Why DuckDB?
 
-DuckDB is a strong fit for this project because it is an in-process SQL OLAP database designed for analytical workloads, with no separate server to manage.[web:1357][web:1364]
+DuckDB is a strong fit for this project because it is an in-process SQL OLAP database designed for analytical workloads, with no separate server to manage.
 
 That makes it ideal for:
 
