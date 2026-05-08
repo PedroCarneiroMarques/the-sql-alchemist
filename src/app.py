@@ -1,12 +1,20 @@
+import sys
 from pathlib import Path
 from typing import Optional, Any
 import re
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 import duckdb
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 from ollama import Client
+
+from config import get_config
+
 
 st.set_page_config(
     page_title="Neural Flight Bridge",
@@ -15,30 +23,28 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from config import get_config
 
 CFG = get_config()
 
 APP_DIR = Path(__file__).resolve().parent
 DATA_PATH = Path(CFG["DATA_PATH"])
-OLLAMA_HOST = CFG["OLLAMA_HOST"]
-OLLAMA_TIMEOUT = CFG["OLLAMA_TIMEOUT"]
-DEFAULT_MODEL_CHAIN = CFG["DEFAULT_MODEL_CHAIN"]
-DEFAULT_DELAY_COST_PER_MINUTE = CFG["DEFAULT_DELAY_COST_PER_MINUTE"]
-DEFAULT_CANCELLATION_COST = CFG["DEFAULT_CANCELLATION_COST"]
+OLLAMA_HOST = CFG.get("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_TIMEOUT = CFG.get("OLLAMA_TIMEOUT", 180)
+DEFAULT_MODEL_CHAIN = CFG.get(
+    "DEFAULT_MODEL_CHAIN",
+    [
+        "mistral:7b",
+        "phi4:14b",
+        "qwen2.5-coder:14b",
+        "gemma4:26b",
+        "qwen3.6:27b",
+        "qwen3.6:35b-a3b",
+        "deepseek-r1:8b",
+    ],
+)
+DEFAULT_DELAY_COST_PER_MINUTE = CFG.get("DEFAULT_DELAY_COST_PER_MINUTE", 50)
+DEFAULT_CANCELLATION_COST = CFG.get("DEFAULT_CANCELLATION_COST", 200)
 
-OLLAMA_HOST = "http://localhost:11434"
-OLLAMA_TIMEOUT = 180
-
-DEFAULT_MODEL_CHAIN = [
-    "mistral:7b",
-    "phi4:14b",
-    "qwen2.5-coder:14b",
-    "gemma4:26b",
-    "qwen3.6:27b",
-    "qwen3.6:35b-a3b",
-    "deepseek-r1:8b",
-]
 
 SUGGESTED_QUESTIONS = [
     "Which airlines have the highest average latency?",
@@ -109,10 +115,13 @@ class WebChatBI:
         blocked_tokens = [
             "INSERT ", "UPDATE ", "DELETE ", "DROP ", "ALTER ", "TRUNCATE ",
             "CREATE ", "REPLACE ", "COPY ", "ATTACH ", "DETACH ", "INSTALL ",
-            "LOAD ", "CALL ", "EXPORT ", "VACUUM ", "PRAGMA "
+            "LOAD ", "CALL ", "EXPORT ", "VACUUM ", "PRAGMA ",
         ]
 
         if not sql_upper.startswith("SELECT "):
+            return False
+
+        if ";" in sql:
             return False
 
         return not any(token in sql_upper for token in blocked_tokens)
@@ -165,7 +174,7 @@ Rules:
             sql = self._ensure_limit(sql)
             return True, sql, ""
         except Exception as exc:
-            return False, "", f"{model_name}: model request failed"
+            return False, "", f"{model_name}: model request failed ({exc})"
 
     def _keyword_fallback_sql(self, question: str) -> str:
         q = question.lower()
@@ -193,8 +202,8 @@ Rules:
         if "cost" in q or "expensive" in q:
             return (
                 "SELECT airline, "
-                "SUM(CASE WHEN status = 'Delayed' THEN latency_minutes * 50 ELSE 0 END) + "
-                "SUM(CASE WHEN status = 'Cancelled' THEN 200 ELSE 0 END) AS estimated_cost "
+                f"SUM(CASE WHEN status = 'Delayed' THEN latency_minutes * {DEFAULT_DELAY_COST_PER_MINUTE} ELSE 0 END) + "
+                f"SUM(CASE WHEN status = 'Cancelled' THEN {DEFAULT_CANCELLATION_COST} ELSE 0 END) AS estimated_cost "
                 "FROM flights GROUP BY airline ORDER BY estimated_cost DESC"
             )
 
@@ -223,7 +232,7 @@ Rules:
                         "attempt_errors": errors,
                     }
                 except Exception as exc:
-                    errors.append(f"{model_name}: SQL execution failed")
+                    errors.append(f"{model_name}: SQL execution failed ({exc})")
             else:
                 errors.append(err)
 
@@ -240,7 +249,7 @@ Rules:
                 "attempt_errors": errors,
             }
         except Exception as exc:
-            errors.append("fallback: query generation failed")
+            errors.append(f"fallback: query execution failed ({exc})")
             return {
                 "success": False,
                 "model": None,
@@ -269,11 +278,18 @@ def safe_first_record(df: pd.DataFrame) -> dict[str, Any]:
 
 def safe_sorted_first_record(
     df: pd.DataFrame,
-    sort_col: str,
-    ascending: bool = False
+    sort_col: str | list[str],
+    ascending: bool = False,
 ) -> dict[str, Any]:
-    if df is None or df.empty or sort_col not in df.columns:
+    if df is None or df.empty:
         return {}
+
+    if isinstance(sort_col, (list, tuple)):
+        sort_col = next((c for c in sort_col if isinstance(c, str) and c in df.columns), None)
+
+    if not sort_col or sort_col not in df.columns:
+        return {}
+
     ordered = df.sort_values(sort_col, ascending=ascending).reset_index(drop=True)
     records = ordered.head(1).to_dict("records")
     return records if records else {}
@@ -283,7 +299,7 @@ def safe_sorted_top_n_records(
     df: pd.DataFrame,
     sort_col: str,
     n: int = 2,
-    ascending: bool = False
+    ascending: bool = False,
 ) -> list[dict[str, Any]]:
     if df is None or df.empty or sort_col not in df.columns or n <= 0:
         return []
@@ -321,20 +337,38 @@ def add_cost_columns(
 ) -> pd.DataFrame:
     df = df.copy()
 
-    df["delay_cost_eur"] = 0
-    df["cancellation_cost_eur"] = 0
+    if df.empty:
+        for col in ["delay_cost_eur", "cancellation_cost_eur", "total_cost_eur"]:
+            if col not in df.columns:
+                df[col] = pd.Series(dtype="float64")
+        return df
+
+    required_cols = {"status", "latency_minutes"}
+    missing = required_cols - set(df.columns)
+    if missing:
+        raise ValueError(f"Missing required columns for cost calculation: {', '.join(sorted(missing))}")
+
+    df["delay_cost_eur"] = 0.0
+    df["cancellation_cost_eur"] = 0.0
 
     delayed_mask = df["status"].eq("Delayed")
     cancelled_mask = df["status"].eq("Cancelled")
 
     df.loc[delayed_mask, "delay_cost_eur"] = (
-        df.loc[delayed_mask, "latency_minutes"].fillna(0) * delay_cost_per_minute
+        pd.to_numeric(df.loc[delayed_mask, "latency_minutes"], errors="coerce").fillna(0)
+        * delay_cost_per_minute
     )
 
-    df.loc[cancelled_mask, "cancellation_cost_eur"] = cancellation_cost
-
+    df.loc[cancelled_mask, "cancellation_cost_eur"] = float(cancellation_cost)
     df["total_cost_eur"] = df["delay_cost_eur"] + df["cancellation_cost_eur"]
     return df
+
+
+def build_airline_filter(selected_airlines: list[str]) -> tuple[str, list]:
+    if not selected_airlines:
+        return "", []
+    placeholders = ",".join(["?"] * len(selected_airlines))
+    return f"WHERE airline IN ({placeholders})", selected_airlines
 
 
 def add_watchdog_columns(
@@ -410,16 +444,16 @@ def get_airline_wars(
     delay_cost_per_minute: int,
     cancellation_cost: int,
 ) -> pd.DataFrame:
-    params = []
+    base_params = []
     where_clauses = []
 
     if selected_airlines:
         placeholders = ",".join(["?"] * len(selected_airlines))
         where_clauses.append(f"airline IN ({placeholders})")
-        params.extend(selected_airlines)
+        base_params.extend(selected_airlines)
 
     where_clauses.append("destination = ?")
-    params.append(selected_destination)
+    base_params.append(selected_destination)
 
     where_sql = "WHERE " + " AND ".join(where_clauses)
 
@@ -465,13 +499,13 @@ def get_airline_wars(
     ORDER BY avg_latency ASC
     """
 
-    params.extend([delay_cost_per_minute, cancellation_cost, airline_a, airline_b])
-    df = bi.dataframe(query, params)
+    query_params = base_params + [delay_cost_per_minute, cancellation_cost, airline_a, airline_b]
+    df = bi.dataframe(query, query_params)
 
     if not df.empty:
-        df["on_time_rate_pct"] = df["on_time_rate"] * 100
-        df["cancellation_rate_pct"] = df["cancellation_rate"] * 100
-        df["latency_percent_rank_pct"] = df["latency_percent_rank"] * 100
+        df["on_time_rate_pct"] = pd.to_numeric(df["on_time_rate"], errors="coerce").fillna(0) * 100
+        df["cancellation_rate_pct"] = pd.to_numeric(df["cancellation_rate"], errors="coerce").fillna(0) * 100
+        df["latency_percent_rank_pct"] = pd.to_numeric(df["latency_percent_rank"], errors="coerce").fillna(0) * 100
 
     return df
 
@@ -485,13 +519,13 @@ def explain_dashboard(
         return "No data is available for the current filters."
 
     total_flights = len(filtered_df)
-    avg_latency = filtered_df["latency_minutes"].fillna(0).mean()
-    total_cost = filtered_df["total_cost_eur"].sum()
+    avg_latency = pd.to_numeric(filtered_df["latency_minutes"], errors="coerce").fillna(0).mean()
+    total_cost = pd.to_numeric(filtered_df["total_cost_eur"], errors="coerce").fillna(0).sum()
 
     top_cost_record = safe_sorted_first_record(
         cost_by_airline,
         sort_col="total_cost_eur",
-        ascending=False
+        ascending=False,
     )
     top_cost_airline = safe_get(top_cost_record, "airline")
 
@@ -524,7 +558,7 @@ def explain_airline_wars(
     wars_df: pd.DataFrame,
     airline_a: str,
     airline_b: str,
-    destination: str
+    destination: str,
 ) -> str:
     if wars_df is None or wars_df.empty or len(wars_df) < 2:
         return f"There is not enough data to compare {airline_a} and {airline_b} on {destination}."
@@ -533,7 +567,7 @@ def explain_airline_wars(
         wars_df,
         sort_col="avg_latency",
         n=2,
-        ascending=True
+        ascending=True,
     )
 
     if len(top_two) < 2:
@@ -572,7 +606,7 @@ def explain_chat_result(question: str, df: pd.DataFrame) -> str:
         return (
             f"This result answers the question '{question}' with {row_count} rows. "
             f"{safe_get(top_row, entity_col, 'The leading entity')} has the highest estimated cost at "
-            f"€{float(safe_get(top_row, 'estimated_cost', 0)):,.0f}."
+            f"€{float(safe_get(top_row, 'estimated_cost', 0) or 0):,.0f}."
         )
 
     if "avg_latency" in df.columns and entity_col:
@@ -580,7 +614,7 @@ def explain_chat_result(question: str, df: pd.DataFrame) -> str:
         return (
             f"This result answers the question '{question}' with {row_count} rows. "
             f"{safe_get(top_row, entity_col, 'The leading entity')} shows the highest average latency at "
-            f"{float(safe_get(top_row, 'avg_latency', 0)):.1f} minutes."
+            f"{float(safe_get(top_row, 'avg_latency', 0) or 0):.1f} minutes."
         )
 
     if "cancelled_flights" in df.columns and entity_col:
@@ -588,22 +622,33 @@ def explain_chat_result(question: str, df: pd.DataFrame) -> str:
         return (
             f"This result answers the question '{question}' with {row_count} rows. "
             f"{safe_get(top_row, entity_col, 'The leading entity')} has the highest cancelled flight count at "
-            f"{int(float(safe_get(top_row, 'cancelled_flights', 0)))}."
+            f"{int(float(safe_get(top_row, 'cancelled_flights', 0) or 0))}."
         )
 
     if entity_col and numeric_cols:
-        top_metric = numeric_cols
+        top_metric = next((col for col in numeric_cols if isinstance(col, str)), None)
+
+        if not top_metric:
+            return f"This result answers the question '{question}' with {row_count} rows."
+
         top_row = safe_sorted_first_record(df, top_metric, ascending=False)
+        top_value = safe_get(top_row, top_metric, 0)
+
+        try:
+            top_value_fmt = f"{float(top_value):,.1f}"
+        except Exception:
+            top_value_fmt = str(top_value)
+
         return (
             f"This result answers the question '{question}' with {row_count} rows. "
-            f"{safe_get(top_row, entity_col, 'The leading entity')} is the strongest value on "
-            f"{top_metric.replace('_', ' ')}."
+            f"{safe_get(top_row, entity_col, 'The leading entity')} has the highest value for "
+            f"{str(top_metric).replace('_', ' ')} at {top_value_fmt}."
         )
 
     if numeric_cols:
         return (
             f"This result answers the question '{question}' with {row_count} rows and {len(numeric_cols)} numeric fields, "
-            f"which makes it suitable for quick visual comparison."
+            "which makes it suitable for quick visual comparison."
         )
 
     return f"This result answers the question '{question}' with {row_count} rows."
@@ -615,13 +660,6 @@ def load_bi(csv_path: str):
     if not path.exists():
         return None
     return WebChatBI(str(path), DEFAULT_MODEL_CHAIN)
-
-
-def build_airline_filter(selected_airlines: list[str]) -> tuple[str, list]:
-    if not selected_airlines:
-        return "", []
-    placeholders = ",".join(["?"] * len(selected_airlines))
-    return f"WHERE airline IN ({placeholders})", selected_airlines
 
 
 def init_session_state():
@@ -758,24 +796,22 @@ with st.sidebar:
 
     wars_airlines = selected_airlines if selected_airlines else all_airlines
 
-    airline_a = st.selectbox(
-        "Airline A",
-        options=wars_airlines,
-        index=0 if wars_airlines else None,
-    )
+    if wars_airlines:
+        airline_a = st.selectbox("Airline A", options=wars_airlines, index=0)
+    else:
+        airline_a = None
 
     airline_b_candidates = [a for a in wars_airlines if a != airline_a]
-    airline_b = st.selectbox(
-        "Airline B",
-        options=airline_b_candidates if airline_b_candidates else wars_airlines,
-        index=0 if (airline_b_candidates or wars_airlines) else None,
-    )
+    airline_b_options = airline_b_candidates if airline_b_candidates else wars_airlines
+    if airline_b_options:
+        airline_b = st.selectbox("Airline B", options=airline_b_options, index=0)
+    else:
+        airline_b = None
 
-    selected_destination = st.selectbox(
-        "Destination",
-        options=all_destinations,
-        index=0 if all_destinations else None,
-    )
+    if all_destinations:
+        selected_destination = st.selectbox("Destination", options=all_destinations, index=0)
+    else:
+        selected_destination = None
 
     if st.button("Clear chat history", use_container_width=True):
         st.session_state.chat_history = []
@@ -815,11 +851,9 @@ with tab1:
     c2.metric("Avg Latency", f"{float(avg_latency or 0):.1f} min")
     c3.metric("Delayed Flights", f"{int(delayed_count or 0):,}")
 
-    total_cost = float(filtered_df["total_cost_eur"].sum()) if not filtered_df.empty else 0
-    delay_cost_total = float(filtered_df["delay_cost_eur"].sum()) if not filtered_df.empty else 0
-    cancellation_cost_total = (
-        float(filtered_df["cancellation_cost_eur"].sum()) if not filtered_df.empty else 0
-    )
+    total_cost = float(pd.to_numeric(filtered_df["total_cost_eur"], errors="coerce").fillna(0).sum()) if not filtered_df.empty else 0
+    delay_cost_total = float(pd.to_numeric(filtered_df["delay_cost_eur"], errors="coerce").fillna(0).sum()) if not filtered_df.empty else 0
+    cancellation_cost_total = float(pd.to_numeric(filtered_df["cancellation_cost_eur"], errors="coerce").fillna(0).sum()) if not filtered_df.empty else 0
 
     c4, c5, c6 = st.columns(3)
     c4.metric("Total Cost (€)", f"{total_cost:,.0f}")
