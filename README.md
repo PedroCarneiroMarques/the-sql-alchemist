@@ -1,32 +1,86 @@
-# The SQL Alchemist
+# The SQL Alchemist — Local AI Business Intelligence Assistant for DuckDB and Ollama
 
-The SQL Alchemist is a local Business Intelligence assistant that converts natural-language questions into DuckDB SQL over flight operations data.
+The SQL Alchemist is a local-first Business Intelligence assistant that converts natural-language questions into DuckDB SQL over flight operations data.
 
 It supports two interfaces:
 
-- A terminal CLI in `src/main.py`.
-- A Streamlit web app in `src/app.py`.
+- A terminal CLI in `src/main.py`
+- A Streamlit web app in `src/app.py`
 
 The project uses local Ollama models for NL-to-SQL generation and includes validation plus keyword-based fallback logic when model output is invalid or unavailable.
 
 ---
 
-## Features
+## Why DuckDB?
 
-- Natural language to SQL over a local DuckDB dataset.
-- Shared configuration through `config.py`.
-- Streamlit UI with model selection, SQL preview, result rendering, history export, and replay.
-- CLI experience with rich terminal formatting.
-- Business analysis layers:
-  - Watchdog, for anomaly and data-quality style detection.
-  - Airline Wars, for ranking and window-function comparisons.
-  - Cost of Chaos, for disruption cost estimation.
-  - Result Explanation, for automatic narrative summaries.
-- Keyword fallback SQL when model generation fails.
+DuckDB is a strong fit for this project because it is an in-process SQL OLAP database designed for analytical workloads, with no separate server to manage.[web:1357][web:1364]
+
+That makes it ideal for:
+
+- local analytics
+- CSV-based workflows
+- fast exploratory querying
+- lightweight deployment
+- private data processing without a database server
+
+For this project, DuckDB keeps the whole stack simple: load a CSV, query it with SQL, and surface results immediately.
 
 ---
 
-## Project structure
+## Architecture Overview
+
+The system follows a simple but robust flow:
+
+```text
+User Question
+    ↓
+Prompt Builder
+    ↓
+Ollama Model
+    ↓
+SQL Sanitizer / Validator
+    ↓
+Fallback Engine (if invalid)
+    ↓
+DuckDB Execution
+    ↓
+Result Formatter / Charts / Explanations
+```
+
+This design keeps the project easy to understand while adding a practical reliability layer for real-world use.
+
+### Core design goals
+
+- Local-first execution.
+- Defensive SQL validation.
+- Clear separation between CLI, Streamlit UI, and analytics logic.
+- Simple extension points for new analysis modules.
+
+---
+
+## SQL Safety and Reliability
+
+The project already protects execution by sanitizing and validating generated SQL before running it.
+
+Current protections include:
+
+- Only `SELECT` statements are accepted.
+- Generated SQL is sanitized before execution.
+- Invalid outputs trigger keyword-based fallback SQL.
+- Fallback reasons are visible in the UI and CLI.
+
+Recommended additional protections:
+
+- No multi-statement execution.
+- Block `DROP`, `DELETE`, `UPDATE`, `INSERT`, `ALTER`, and `CREATE`.
+- Enforce query timeouts where possible.
+- Inject a default `LIMIT` when the query is unrestricted.
+
+This is especially valuable if the project is used as a portfolio demo or expanded for broader use.
+
+---
+
+## Project Structure
 
 ```text
 chab_ai_engine/
@@ -46,15 +100,62 @@ chab_ai_engine/
     └── DEPENDENCIES.md
 ```
 
-This structure keeps the runtime code in `src/`, documentation in `docs/`, and notebook material in `notebooks/`, while preserving the dataset path expected by the app: `data/flights.csv`.
+This layout keeps runtime code in `src/`, documentation in `docs/`, and notebook material in `notebooks/`, while preserving the dataset path expected by the app: `data/flights.csv`.
 
 ---
 
-## Data model
+## What the Project Does
 
-The dataset is loaded into an in-memory DuckDB table named `flights`.
+The engine loads `flights.csv` into an in-memory DuckDB table named `flights`, then:
 
-Expected columns:
+1. accepts a natural-language question
+2. asks a local Ollama model to produce SQL
+3. sanitizes and validates the SQL
+4. executes the query and returns results
+
+If generation fails, the system applies intent-based fallback SQL using keywords such as:
+
+- average latency
+- delayed/cancelled flights
+- counts/totals by status
+
+This avoids always returning the same default query shape.
+
+---
+
+## Analysis Layers
+
+The named business layers add personality and analytical depth beyond simple querying.
+
+### Watchdog
+
+Detects operational anomalies, suspicious latency spikes, and data-quality inconsistencies.
+
+Use it when you want a quick view of risky or unusual flights.
+
+### Airline Wars
+
+Compares airlines using rankings, percentiles, and window-function analysis.
+
+Use it when you want competitive benchmarking between carriers or routes.
+
+### Cost of Chaos
+
+Estimates operational disruption costs caused by delays and cancellations.
+
+Use it when you want a financial view of operational problems.
+
+### Result Explanation
+
+Uses LLM summarization to convert SQL results into executive-style narratives.
+
+Use it when you want a plain-English interpretation of query results.
+
+---
+
+## Data Model
+
+The `flights` table (from `data/flights.csv`) contains:
 
 - `flight_id`
 - `airline`
@@ -63,17 +164,61 @@ Expected columns:
 - `departure_time`
 - `arrival_time`
 - `latency_minutes`
-- `status`
+- `status` (`On-Time`, `Delayed`, `Cancelled`)
 
-The `status` field is expected to contain values such as `On-Time`, `Delayed`, and `Cancelled`.
+The dataset has been expanded with many randomized but realistic records to improve query quality and aggregate analyses.
+
+### Dataset notes
+
+- Designed for local analytical exploration.
+- Suitable for ranking, aggregation, and anomaly detection.
+- Works well with DuckDB because the entire CSV can be queried directly.
+
+---
+
+## Example Outputs
+
+### CLI example
+
+```text
+> Which airlines have the highest average latency?
+
+Generated SQL:
+SELECT airline, AVG(latency_minutes) AS avg_latency
+FROM flights
+GROUP BY airline
+ORDER BY avg_latency DESC
+LIMIT 200;
+```
+
+### Result example
+
+```text
++-----------+-------------+
+| airline   | avg_latency |
++-----------+-------------+
+| SkyJet    | 42.5        |
+| AeroLink  | 37.2        |
++-----------+-------------+
+```
+
+### Streamlit example
+
+Add a screenshot here once uploaded to the repository:
+
+```md
+
+```
+
+You can also add a CLI screenshot if you want to show both interfaces.
 
 ---
 
 ## Requirements
 
-- Python 3.10+.
-- Ollama installed locally.
-- At least one local model available, for example `mistral:7b`.
+- Python 3.10+
+- Ollama installed locally
+- At least one local Ollama model, for example `qwen3.6:27b`
 
 Python dependencies used by the project include `duckdb`, `rich`, `ollama`, `streamlit`, `plotly`, and `pandas`.
 
@@ -90,7 +235,7 @@ python3 -m pip install -r requirements.txt
 Optional Ollama setup:
 
 ```bash
-ollama pull mistral:7b
+ollama pull qwen3.6:27b
 ollama serve
 ```
 
@@ -110,10 +255,10 @@ Inside the terminal experience, you can ask questions in plain English and exit 
 
 Example questions:
 
-- `Which airlines have the highest average latency?`
-- `How many flights were cancelled by airline?`
-- `Show delayed flights ordered by latency.`
-- `What is the distribution of flight statuses?`
+- Which airlines have the highest average latency?
+- How many flights were cancelled by airline?
+- Show delayed flights ordered by latency.
+- What is the distribution of flight statuses?
 
 ---
 
@@ -129,31 +274,106 @@ The Streamlit app supports installed-model picking, manual model input fallback,
 
 ---
 
+## Configuration
+
+The shared `config.py` controls core runtime settings.
+
+Typical values include:
+
+- Ollama host
+- Ollama timeout
+- CSV path
+- delay cost per minute
+- cancellation cost
+- default model chain
+
+Example:
+
+```python
+OLLAMA_HOST = "http://localhost:11434"
+OLLAMA_TIMEOUT = 180
+DATA_PATH = "data/flights.csv"
+DEFAULT_DELAY_COST_PER_MINUTE = 50
+DEFAULT_CANCELLATION_COST = 200
+DEFAULT_MODEL_CHAIN = [...]
+```
+
+---
+
 ## Reliability
 
 To improve stability, the project sanitizes model output, accepts only `SELECT` queries, and applies keyword-based fallback SQL when generated output is invalid or unavailable.
 
-This avoids always returning the same default query shape and makes the app more robust during local model failures.
+That means the app remains usable even when the local model is unavailable or returns malformed SQL.
+
+---
+
+## Example Advanced Questions
+
+- Which destinations have the highest cancellation rates?
+- Compare average latency by airline and destination.
+- Show rolling 7-day delay trends.
+- Which routes contribute most to disruption cost?
+- Which carriers have the best on-time performance?
+- What flights are flagged as high risk by the Watchdog?
+
+---
+
+## Testing
+
+A small test suite would strengthen credibility and make future refactors safer.
+
+Suggested layout:
+
+```text
+tests/
+├── test_sql_validation.py
+├── test_fallback_logic.py
+├── test_prompt_builder.py
+└── test_duckdb_execution.py
+```
+
+Run with:
+
+```bash
+pytest
+```
+
+---
+
+## Roadmap
+
+Possible future improvements:
+
+- Multi-table joins
+- Schema-aware prompting
+- Query caching
+- User-uploaded CSV datasets
+- Dashboard generation
+- RAG-based business definitions
+- Role-based access controls
+- Better chart templates
+- More advanced SQL safety checks
 
 ---
 
 ## Troubleshooting
 
-### Model not found
+### `model ... not found (404)`
 
-If you get `model ... not found (404)`, pull the model locally with Ollama or choose an installed model from the Streamlit interface.
+Select an installed model in the Streamlit dropdown or pull the model with Ollama.
 
-### Could not fetch local Ollama models
+### `Could not fetch local Ollama models`
 
-Ensure `ollama serve` is running locally.
+The app will still work via manual model input. Ensure `ollama serve` is running and retry.
 
-### File does not exist
+### `File does not exist: src/app.py`
 
-Run commands from the project root so paths like `src/app.py` and `data/flights.csv` resolve correctly.
+Run commands from the `chab_ai_engine` folder.
 
-### ModuleNotFoundError
+### `ModuleNotFoundError` for dependencies
 
-Reinstall dependencies:
+Reinstall dependencies with:
 
 ```bash
 python3 -m pip install -r requirements.txt
@@ -163,12 +383,6 @@ python3 -m pip install -r requirements.txt
 
 ## Notes
 
-- This project is intended for local execution.
-- Query quality depends on both model quality and prompt specificity.
-- The notebook version in `notebooks/main.ipynb` documents the CLI architecture and analysis layers discussed during development.
-
----
-
-## License
-
-Add your preferred open-source license here, for example MIT.
+- This project is designed for local execution.
+- No cloud dependency is required for NL-to-SQL.
+- Query quality depends on both the model quality and prompt specificity.
