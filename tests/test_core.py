@@ -22,6 +22,7 @@ from src.core import (
     get_profile_chain,
     query_flight_kpis,
     recommend_chart,
+    run_stored_chat_sql,
     resolve_profile_chain,
     normalize_model_profile,
     resolve_model_chain,
@@ -261,6 +262,15 @@ class TestDatasetAndExport:
         )
         assert values.issubset({"Morning", "Afternoon", "Evening", "Night"})
         assert len(values) > 1
+
+    def test_run_stored_chat_sql_reexecutes_valid_query(self, bi: ChatBI) -> None:
+        sql = "SELECT airline FROM flights LIMIT 3"
+        df = run_stored_chat_sql(bi, sql)
+        assert len(df) == 3
+
+    def test_run_stored_chat_sql_rejects_unsafe_query(self, bi: ChatBI) -> None:
+        with pytest.raises(ValueError, match="no longer valid"):
+            run_stored_chat_sql(bi, "DROP TABLE flights")
 
     def test_dataframe_to_csv_bytes_roundtrip(self) -> None:
         df = pd.DataFrame({"a": [1, 2], "b": ["x", "y"]})

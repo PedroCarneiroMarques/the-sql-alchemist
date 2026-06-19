@@ -887,6 +887,13 @@ def validate_dataset(bi: ChatBI) -> None:
         raise ValueError(f"Missing required columns: {', '.join(sorted(missing))}")
 
 
+def run_stored_chat_sql(bi: ChatBI, sql: str) -> pd.DataFrame:
+    ok, reason = validate_sql_query(sql)
+    if not ok:
+        raise ValueError(f"Stored chat SQL is no longer valid: {reason}")
+    return bi.dataframe(sql)
+
+
 def dataframe_to_csv_bytes(df: pd.DataFrame) -> bytes:
     if df is None or df.empty:
         return b""

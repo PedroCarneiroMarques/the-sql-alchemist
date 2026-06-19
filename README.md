@@ -379,7 +379,7 @@ The Streamlit app currently includes:
 - business impact controls in the sidebar
 - global airline filters
 - route-level airline comparison
-- in-session chat history
+- in-session chat history (metadata-only storage; results reloaded from SQL on demand)
 - CSV download buttons for filtered data, cost summaries, Airline Wars, and chat results
 
 ## Testing
@@ -568,7 +568,6 @@ The project currently includes:
 Possible next improvements:
 
 - add calendar dates to the CSV for day-of-week and seasonal analysis
-- chat history memory optimization in Streamlit
 - unified PT/EN localization
 - deployment-ready configuration management
 

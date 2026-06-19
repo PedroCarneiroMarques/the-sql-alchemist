@@ -36,6 +36,7 @@ from src.core import (
     query_flight_kpis,
     recommend_chart,
     resolve_profile_chain,
+    run_stored_chat_sql,
     default_airline_selection,
     sum_cost_columns,
     validate_dataset,
@@ -60,6 +61,93 @@ def load_bi(csv_path: str) -> ChatBI | None:
 def init_session_state() -> None:
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
+        return
+    st.session_state.chat_history = compact_chat_history(st.session_state.chat_history)
+
+
+def compact_chat_history(history: list[dict]) -> list[dict]:
+    compacted: list[dict] = []
+    for item in history:
+        entry = {key: value for key, value in item.items() if key != "data"}
+        if entry.get("success") and "row_count" not in entry:
+            data = item.get("data")
+            if data is not None:
+                entry["row_count"] = len(data)
+        compacted.append(entry)
+    return compacted
+
+
+def build_chat_history_entry(
+    question: str,
+    response: dict,
+    explanation: str = "",
+) -> dict:
+    entry = {
+        "question": question,
+        "success": response["success"],
+        "model": response.get("model"),
+        "sql": response.get("sql", ""),
+        "attempt_errors": response.get("attempt_errors", []),
+    }
+    if response["success"]:
+        entry["explanation"] = explanation
+        entry["row_count"] = len(response["data"])
+    else:
+        entry["error"] = response.get("error", "Unknown error")
+    return entry
+
+
+@st.cache_data(show_spinner=False)
+def load_chat_result_data(csv_path: str, sql: str) -> pd.DataFrame:
+    bi_instance = load_bi(csv_path)
+    if bi_instance is None or not sql:
+        return pd.DataFrame()
+    try:
+        return run_stored_chat_sql(bi_instance, sql)
+    except ValueError:
+        return pd.DataFrame()
+
+
+def render_chat_assistant_success(item: dict, df: pd.DataFrame, key_prefix: str) -> None:
+    st.caption(f"Model used: {item['model']}")
+    st.code(item["sql"], language="sql")
+
+    if item.get("explanation"):
+        st.info(item["explanation"])
+
+    if df.empty:
+        st.warning("Could not reload stored query results.")
+        return
+
+    st.dataframe(df, use_container_width=True, height=260)
+    render_csv_download(
+        df,
+        label="Download result CSV",
+        filename=f"chat_result_{item.get('model', 'query')}.csv",
+        key=f"{key_prefix}_csv",
+    )
+    render_auto_chart(df, key=f"{key_prefix}_chart")
+
+
+def render_chat_assistant_failure(item: dict) -> None:
+    st.error(item.get("error", "Unknown error"))
+    if item.get("attempt_errors"):
+        with st.expander("Model attempts"):
+            for err in item["attempt_errors"]:
+                st.write(f"- {err}")
+
+
+def render_chat_history() -> None:
+    for i, item in enumerate(st.session_state.chat_history):
+        with st.chat_message("user"):
+            st.markdown(item["question"])
+
+        with st.chat_message("assistant"):
+            if item.get("success"):
+                df = load_chat_result_data(str(DATA_PATH), item.get("sql", ""))
+                render_chat_assistant_success(item, df, key_prefix=f"history_{i}")
+            else:
+                render_chat_assistant_failure(item)
 
 
 def render_csv_download(df: pd.DataFrame, label: str, filename: str, key: str) -> None:
@@ -93,35 +181,6 @@ def render_auto_chart(df: pd.DataFrame, key: str) -> None:
 
     fig.update_layout(height=400, margin=dict(l=20, r=20, t=50, b=20))
     st.plotly_chart(fig, use_container_width=True, key=key)
-
-
-def render_chat_history() -> None:
-    for i, item in enumerate(st.session_state.chat_history):
-        with st.chat_message("user"):
-            st.markdown(item["question"])
-
-        with st.chat_message("assistant"):
-            if item.get("success"):
-                st.caption(f"Model used: {item['model']}")
-                st.code(item["sql"], language="sql")
-
-                if item.get("explanation"):
-                    st.info(item["explanation"])
-
-                st.dataframe(item["data"], use_container_width=True, height=260)
-                render_csv_download(
-                    item["data"],
-                    label="Download result CSV",
-                    filename=f"chat_result_{item.get('model', 'query')}.csv",
-                    key=f"history_csv_{i}",
-                )
-                render_auto_chart(item["data"], key=f"history_chart_{i}")
-            else:
-                st.error(item.get("error", "Unknown error"))
-                if item.get("attempt_errors"):
-                    with st.expander("Model attempts"):
-                        for err in item["attempt_errors"]:
-                            st.write(f"- {err}")
 
 
 def render_suggested_questions() -> Optional[str]:
@@ -497,18 +556,14 @@ with tab2:
 
             with st.chat_message("assistant"):
                 st.success(f"Answered with: {response['model']}")
-                st.code(response["sql"], language="sql")
-                st.info(explanation)
-                st.dataframe(response["data"], use_container_width=True, height=260)
-                render_csv_download(
+                render_chat_assistant_success(
+                    {
+                        "model": response["model"],
+                        "sql": response["sql"],
+                        "explanation": explanation,
+                    },
                     response["data"],
-                    label="Download result CSV",
-                    filename=f"chat_result_{response['model']}.csv",
-                    key=f"chat_csv_{len(st.session_state.chat_history)}",
-                )
-                render_auto_chart(
-                    response["data"],
-                    key=f"chat_chart_{len(st.session_state.chat_history)}",
+                    key_prefix=f"live_{len(st.session_state.chat_history)}",
                 )
 
                 if response["attempt_errors"]:
@@ -517,34 +572,13 @@ with tab2:
                             st.write(f"- {err}")
 
             st.session_state.chat_history.append(
-                {
-                    "question": final_prompt,
-                    "success": True,
-                    "model": response["model"],
-                    "sql": response["sql"],
-                    "data": response["data"],
-                    "explanation": explanation,
-                    "attempt_errors": response["attempt_errors"],
-                }
+                build_chat_history_entry(final_prompt, response, explanation)
             )
         else:
             with st.chat_message("assistant"):
-                st.error(response["error"])
-                with st.expander("Model attempts"):
-                    for err in response["attempt_errors"]:
-                        st.write(f"- {err}")
+                render_chat_assistant_failure(response)
 
-            st.session_state.chat_history.append(
-                {
-                    "question": final_prompt,
-                    "success": False,
-                    "model": None,
-                    "sql": response["sql"],
-                    "data": None,
-                    "error": response["error"],
-                    "attempt_errors": response["attempt_errors"],
-                }
-            )
+            st.session_state.chat_history.append(build_chat_history_entry(final_prompt, response))
 
 st.markdown("---")
 st.caption(
