@@ -31,33 +31,38 @@ sql_alchemist/
 ├── data/
 │   └── flights.csv
 ├── docs/
-│   ├── images/
-│   │   ├── dashboard-overview.png
-│   │   ├── chat-analysis.png
-│   │   └── airline-comparison.png
-│   └── DEPENDENCIES.md
+│   ├── images/              # README screenshots (PNG)
+│   ├── DEPENDENCIES.md
+│   ├── DEPLOYMENT.md
+│   └── GITHUB_SETUP.md
 ├── notebooks/
 │   └── main.ipynb
 ├── scripts/
 │   ├── capture_screenshots.py
+│   ├── enrich_flights_dates.py
 │   └── docker-entrypoint.sh
 ├── src/
-│   ├── core.py          # shared BI engine (ChatBI, analytics, explanations)
-│   ├── health.py        # deployment health checks
-│   ├── i18n.py          # EN/PT UI strings
-│   ├── main.py          # CLI interface
-│   └── app.py           # Streamlit interface
+│   ├── core.py              # shared BI engine (ChatBI, analytics, explanations)
+│   ├── health.py            # deployment health checks
+│   ├── i18n.py              # EN/PT UI strings
+│   ├── main.py              # CLI interface
+│   └── app.py               # Streamlit interface
 ├── tests/
 │   ├── conftest.py
-│   └── test_core.py
+│   ├── test_core.py
+│   ├── test_config.py
+│   ├── test_health.py
+│   └── test_i18n.py
 ├── .github/
 │   └── workflows/
 │       └── ci.yml
 ├── Dockerfile
 ├── docker-compose.yml
+├── docker-compose.prod.yml
 ├── config.py
-├── main.py              # convenience CLI entry point
+├── main.py                  # convenience CLI entry point
 ├── .env.example
+├── .env.production.example
 ├── .gitignore
 ├── LICENSE
 ├── pyproject.toml
@@ -74,8 +79,10 @@ sql_alchemist/
 | `src/core.py` | DuckDB loading, Ollama SQL generation, fallback logic, watchdog, airline comparison, KPI helpers |
 | `src/main.py` | Terminal UI with Rich (`/dashboard`, `/compare`, `/suggest`, chat) |
 | `src/app.py` | Streamlit dashboards, charts, chat, CSV export |
+| `src/health.py` | Startup and HTTP health checks for deployment |
+| `src/i18n.py` | EN/PT localization for CLI and Streamlit |
 | `notebooks/main.ipynb` | Lightweight experimentation that imports from `src/core.py` |
-| `tests/test_core.py` | Automated tests for core behavior |
+| `tests/` | Automated tests for core, config, health, and i18n |
 
 ## What the Project Does
 
@@ -610,7 +617,6 @@ The project currently includes:
 
 Possible next improvements:
 
-- remote Ollama authentication via `OLLAMA_API_KEY`
 - automated screenshot refresh in CI
 - additional airline datasets
 

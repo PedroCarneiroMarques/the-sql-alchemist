@@ -10,6 +10,7 @@ This project runs locally and uses a small set of Python dependencies.
 - `plotly` — charts and visual analytics in the Streamlit app.
 - `ollama` — local LLM client for natural-language-to-SQL generation.
 - `rich` — improved terminal output for the CLI version.
+- `sqlparse` — SQL parsing and safety validation before query execution.
 
 ## Python version
 
