@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.i18n import configure_locale, t, watchdog_label
 from src.core import (
     ChatBI,
     DATA_PATH,
@@ -24,7 +26,6 @@ from src.core import (
     DEFAULT_MODEL_PROFILE,
     MODEL_PROFILES,
     SUGGESTED_QUESTIONS,
-    WATCHDOG_SENSITIVITY_LABELS,
     DEFAULT_WATCHDOG_SENSITIVITY,
     add_watchdog_columns,
     aggregate_cost_by_airline,
@@ -58,7 +59,7 @@ class CliSession:
 
 def print_dataframe(df: pd.DataFrame, title: str = "Results", max_rows: int = 20) -> None:
     if df is None or df.empty:
-        console.print("[yellow]No rows returned.[/yellow]")
+        console.print(f"[yellow]{t('cli.no_rows')}[/yellow]")
         return
 
     preview = df.head(max_rows).copy()
@@ -73,13 +74,13 @@ def print_dataframe(df: pd.DataFrame, title: str = "Results", max_rows: int = 20
     console.print(table)
 
     if len(df) > max_rows:
-        console.print(f"[dim]Showing {max_rows} of {len(df)} rows.[/dim]")
+        console.print(f"[dim]{t('cli.showing_rows', shown=max_rows, total=len(df))}[/dim]")
 
 
 def print_attempt_errors(attempt_errors: list[str]) -> None:
     if not attempt_errors:
         return
-    console.print("[bold yellow]Model attempts:[/bold yellow]")
+    console.print(f"[bold yellow]{t('cli.model_attempts')}:[/bold yellow]")
     for err in attempt_errors:
         console.print(f"- {err}")
 
@@ -89,11 +90,11 @@ def print_kpis(bi: ChatBI, selected_airlines: list[str], filtered_df: pd.DataFra
     total_cost = float(filtered_df["total_cost_eur"].sum()) if not filtered_df.empty else 0
 
     console.print(Panel.fit(
-        f"Total Flights: {int(kpis['total_flights'] or 0):,}\n"
-        f"Avg Latency: {float(kpis['avg_latency'] or 0):.1f} min\n"
-        f"Delayed Flights: {int(kpis['delayed_count'] or 0):,}\n"
-        f"Total Cost: €{total_cost:,.0f}",
-        title="Dashboard KPIs",
+        f"{t('cli.total_flights')}: {int(kpis['total_flights'] or 0):,}\n"
+        f"{t('cli.avg_latency')}: {float(kpis['avg_latency'] or 0):.1f} min\n"
+        f"{t('cli.delayed_flights')}: {int(kpis['delayed_count'] or 0):,}\n"
+        f"{t('cli.total_cost')}: €{total_cost:,.0f}",
+        title=t("cli.dashboard_kpis"),
         border_style="cyan",
     ))
 
@@ -138,9 +139,9 @@ def prompt_list_selection(options: list[str], title: str, allow_multiple: bool =
         return []
 
     print_numbered_options(options, title)
-    hint = "comma-separated numbers or names" if allow_multiple else "number or name"
-    extra = " ('all' = select all, 'none' = clear)" if allow_multiple else ""
-    raw = Prompt.ask(f"Choose ({hint}){extra}", default="1" if not allow_multiple else "")
+    hint = t("cli.choose_multi") if allow_multiple else t("cli.choose")
+    extra = t("cli.choose_all_hint") if allow_multiple else ""
+    raw = Prompt.ask(f"{hint}{extra}", default="1" if not allow_multiple else "")
     selected = parse_selection(raw, options)
     if allow_multiple:
         return selected
@@ -152,32 +153,30 @@ def prompt_single_selection(options: list[str], title: str, default_index: int =
         return None
     print_numbered_options(options, title)
     default = str(default_index + 1)
-    raw = Prompt.ask("Choose", default=default)
+    raw = Prompt.ask(t("cli.choose"), default=default)
     selected = parse_selection(raw, options)
     return selected[0] if selected else options[default_index]
 
 
 def handle_filter(session: CliSession, all_airlines: list[str]) -> None:
-    console.print(
-        f"[dim]Current filter:[/dim] "
-        f"{', '.join(session.selected_airlines) if session.selected_airlines else 'all airlines'}"
-    )
-    session.selected_airlines = prompt_list_selection(all_airlines, "Select airlines")
+    current = ", ".join(session.selected_airlines) if session.selected_airlines else t("cli.all_airlines")
+    console.print(f"[dim]{t('cli.current_filter')}:[/dim] {current}")
+    session.selected_airlines = prompt_list_selection(all_airlines, t("cli.select_airlines"))
     if session.selected_airlines:
-        console.print(f"[green]Filter updated:[/green] {', '.join(session.selected_airlines)}")
+        console.print(f"[green]{t('cli.filter_updated')}:[/green] {', '.join(session.selected_airlines)}")
     else:
-        console.print("[green]Filter cleared:[/green] all airlines")
+        console.print(f"[green]{t('cli.filter_cleared')}:[/green] {t('cli.all_airlines')}")
 
 
 def handle_profile(session: CliSession, available_models: list[str], args: list[str]) -> None:
     if not args:
-        console.print(f"[bold]Active profile:[/bold] {session.active_profile}")
-        console.print(f"[bold]Active chain:[/bold] {', '.join(session.selected_chain)}")
-        console.print("[bold]Available profiles:[/bold]")
+        console.print(f"[bold]{t('cli.active_profile')}:[/bold] {session.active_profile}")
+        console.print(f"[bold]{t('cli.active_chain')}:[/bold] {', '.join(session.selected_chain)}")
+        console.print(f"[bold]{t('cli.available_profiles')}:[/bold]")
         for name, chain in MODEL_PROFILES.items():
-            marker = " (active)" if name == session.active_profile else ""
+            marker = t("cli.active") if name == session.active_profile else ""
             console.print(f"  {name}{marker}: {', '.join(chain)}")
-        console.print("Use /profile fast|balanced|accurate to switch.")
+        console.print(t("cli.profile_usage"))
         return
 
     profile = args[0].lower()
@@ -189,17 +188,17 @@ def handle_profile(session: CliSession, available_models: list[str], args: list[
         return
 
     console.print(
-        f"[green]Profile set to {profile}:[/green] {', '.join(session.selected_chain)}"
+        f"[green]{t('cli.profile_set', profile=profile)}:[/green] {', '.join(session.selected_chain)}"
     )
 
 
 def handle_watchdog(session: CliSession, args: list[str]) -> None:
     if not args:
-        console.print(f"[bold]Active watchdog sensitivity:[/bold] {session.watchdog_sensitivity}")
-        for name, label in WATCHDOG_SENSITIVITY_LABELS.items():
-            marker = " (active)" if name == session.watchdog_sensitivity else ""
-            console.print(f"  {name}{marker}: {label}")
-        console.print("Use /watchdog relaxed|normal|strict to switch.")
+        console.print(f"[bold]{t('cli.active_watchdog')}:[/bold] {session.watchdog_sensitivity}")
+        for name in ("relaxed", "normal", "strict"):
+            marker = t("cli.active") if name == session.watchdog_sensitivity else ""
+            console.print(f"  {name}{marker}: {watchdog_label(name)}")
+        console.print(t("cli.watchdog_usage"))
         return
 
     try:
@@ -208,12 +207,12 @@ def handle_watchdog(session: CliSession, args: list[str]) -> None:
         console.print(f"[red]{exc}[/red]")
         return
 
-    console.print(f"[green]Watchdog sensitivity set to {session.watchdog_sensitivity}.[/green]")
+    console.print(t("cli.watchdog_set", value=session.watchdog_sensitivity))
 
 
 def handle_export(session: CliSession, filename: str | None = None) -> None:
     if session.last_export_df is None or session.last_export_df.empty:
-        console.print("[yellow]Nothing to export yet. Run a query or /dashboard first.[/yellow]")
+        console.print(f"[yellow]{t('cli.nothing_to_export')}[/yellow]")
         return
 
     if filename:
@@ -225,7 +224,7 @@ def handle_export(session: CliSession, filename: str | None = None) -> None:
     output_path = EXPORTS_DIR / output_name
     try:
         write_dataframe_csv(session.last_export_df, output_path)
-        console.print(f"[green]Exported {len(session.last_export_df):,} rows to[/green] {output_path}")
+        console.print(f"[green]{t('cli.exported_rows', rows=len(session.last_export_df))}[/green] {output_path}")
     except ValueError as exc:
         console.print(f"[red]{exc}[/red]")
 
@@ -238,7 +237,7 @@ def handle_wars(
     args: list[str],
 ) -> None:
     if len(all_airlines) < 2 or not all_destinations:
-        console.print("[yellow]Not enough data for Airline Wars.[/yellow]")
+        console.print(f"[yellow]{t('cli.not_enough_wars_data')}[/yellow]")
         return
 
     wars_pool = session.selected_airlines if session.selected_airlines else all_airlines
@@ -246,15 +245,15 @@ def handle_wars(
     if len(args) >= 3:
         airline_a, airline_b, destination = args[0], args[1], args[2]
     else:
-        airline_a = prompt_single_selection(wars_pool, "Airline A", default_index=0)
+        airline_a = prompt_single_selection(wars_pool, t("settings.airline_a"), default_index=0)
         airline_b_options = [airline for airline in wars_pool if airline != airline_a]
         if not airline_b_options:
             airline_b_options = [airline for airline in all_airlines if airline != airline_a]
-        airline_b = prompt_single_selection(airline_b_options, "Airline B", default_index=0)
-        destination = prompt_single_selection(all_destinations, "Destination", default_index=0)
+        airline_b = prompt_single_selection(airline_b_options, t("settings.airline_b"), default_index=0)
+        destination = prompt_single_selection(all_destinations, t("settings.destination"), default_index=0)
 
     if not airline_a or not airline_b or not destination:
-        console.print("[yellow]Airline Wars cancelled.[/yellow]")
+        console.print(f"[yellow]{t('cli.wars_cancelled')}[/yellow]")
         return
 
     wars_df = get_airline_wars(
@@ -268,9 +267,9 @@ def handle_wars(
     )
 
     console.print(explain_airline_wars(wars_df, airline_a, airline_b, destination))
-    print_dataframe(wars_df, title="Airline Wars", max_rows=10)
+    print_dataframe(wars_df, title=t("settings.airline_wars"), max_rows=10)
     remember_export(session, wars_df, "airline_wars")
-    console.print("[dim]Tip: use /export to save this result as CSV.[/dim]")
+    console.print(f"[dim]{t('cli.export_tip')}[/dim]")
 
 
 def handle_dashboard(bi: ChatBI, session: CliSession) -> None:
@@ -285,7 +284,7 @@ def handle_dashboard(bi: ChatBI, session: CliSession) -> None:
 
     print_kpis(bi, session.selected_airlines, filtered_df)
     console.print(explain_dashboard(filtered_df, cost_by_airline))
-    print_dataframe(cost_by_airline, title="Cost of Chaos", max_rows=10)
+    print_dataframe(cost_by_airline, title=t("cli.cost_of_chaos"), max_rows=10)
 
     watchdog_cols = [
         "flight_id", "airline", "destination", "latency_minutes",
@@ -293,10 +292,10 @@ def handle_dashboard(bi: ChatBI, session: CliSession) -> None:
     ]
     existing_watchdog_cols = [c for c in watchdog_cols if c in filtered_df.columns]
     watchdog_preview = filtered_df[existing_watchdog_cols]
-    print_dataframe(watchdog_preview, title="Watchdog Preview", max_rows=15)
+    print_dataframe(watchdog_preview, title=t("cli.watchdog_preview"), max_rows=15)
 
     remember_export(session, filtered_df, "dashboard")
-    console.print("[dim]Tip: use /export to save the dashboard view as CSV.[/dim]")
+    console.print(f"[dim]{t('cli.export_dashboard_tip')}[/dim]")
 
 
 def run_cli(bi: ChatBI) -> None:
@@ -311,43 +310,26 @@ def run_cli(bi: ChatBI) -> None:
     )
 
     console.print(Panel.fit(
-        "The SQL Alchemist CLI is ready.\n"
-        "Type a natural-language question, or use one of the commands below:\n"
-        "  /help        Show commands\n"
-        "  /suggest     Show suggested questions\n"
-        "  /filter      Choose airlines for dashboard and wars\n"
-        "  /profile     Show or set model profile (fast|balanced|accurate)\n"
-        "  /watchdog    Show or set watchdog sensitivity\n"
-        "  /dashboard   Show KPI summary + Watchdog\n"
-        "  /wars        Interactive Airline Wars comparison\n"
-        "  /export      Save last result to exports/\n"
-        "  /models      Show active model chain\n"
-        "  /quit        Exit",
-        title="Neural Flight Bridge CLI",
+        t("cli.ready"),
+        title=t("cli.title"),
         border_style="green",
     ))
+    filter_label = ", ".join(session.selected_airlines) if session.selected_airlines else t("cli.all_airlines")
     console.print(
-        f"[dim]Active profile:[/dim] {session.active_profile} | "
-        f"[dim]Watchdog:[/dim] {session.watchdog_sensitivity} | "
-        f"[dim]Airline filter:[/dim] "
-        f"{', '.join(session.selected_airlines) if session.selected_airlines else 'all airlines'}"
+        f"[dim]{t('cli.active_profile')}:[/dim] {session.active_profile} | "
+        f"[dim]{t('cli.watchdog')}:[/dim] {session.watchdog_sensitivity} | "
+        f"[dim]{t('cli.airline_filter')}:[/dim] {filter_label}"
     )
 
     while True:
-        user_input = Prompt.ask("[bold blue]The Alchemist[/bold blue]").strip()
+        user_input = Prompt.ask(f"[bold blue]{t('cli.prompt')}[/bold blue]").strip()
 
         if user_input.lower() in {"quit", "exit", "q", "/quit"}:
-            console.print("[red]Session closed.[/red]")
+            console.print(f"[red]{t('cli.session_closed')}[/red]")
             break
 
         if user_input == "/help":
-            console.print(
-                "Commands: /suggest, /filter, /profile, /watchdog, /dashboard, /wars, /export, /models.\n"
-                "Profiles: /profile fast | /profile balanced | /profile accurate\n"
-                "Watchdog: /watchdog relaxed | /watchdog normal | /watchdog strict\n"
-                "Quick wars: /wars AirlineA AirlineB Destination\n"
-                "Quick export: /export my_file.csv"
-            )
+            console.print(t("cli.help"))
             continue
 
         if user_input == "/suggest":
@@ -356,8 +338,8 @@ def run_cli(bi: ChatBI) -> None:
             continue
 
         if user_input == "/models":
-            console.print(f"Active profile: {session.active_profile}")
-            console.print("Active model chain:")
+            console.print(f"{t('cli.active_profile')}: {session.active_profile}")
+            console.print(f"{t('cli.active_model_chain')}:")
             for model in session.selected_chain:
                 console.print(f"- {model}")
             continue
@@ -394,11 +376,17 @@ def run_cli(bi: ChatBI) -> None:
         response = bi.ask_with_fallback(user_input, session.selected_chain)
 
         if response["success"]:
-            console.print(Panel.fit(response["sql"], title=f"SQL via {response['model']}", border_style="magenta"))
+            console.print(
+                Panel.fit(
+                    response["sql"],
+                    title=t("cli.sql_via", model=response["model"]),
+                    border_style="magenta",
+                )
+            )
             console.print(explain_chat_result(user_input, response["data"]))
-            print_dataframe(response["data"], title="Query Result", max_rows=20)
+            print_dataframe(response["data"], title=t("cli.query_result"), max_rows=20)
             remember_export(session, response["data"], "query_result")
-            console.print("[dim]Tip: use /export to save this result as CSV.[/dim]")
+            console.print(f"[dim]{t('cli.export_tip')}[/dim]")
             print_attempt_errors(response["attempt_errors"])
         else:
             console.print(f"[red]{response['error']}[/red]")
@@ -406,8 +394,13 @@ def run_cli(bi: ChatBI) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="The SQL Alchemist CLI")
+    parser.add_argument("--lang", choices=["en", "pt"], default=None, help="UI language (en or pt)")
+    args = parser.parse_args()
+    configure_locale(args.lang)
+
     if not DATA_PATH.exists():
-        console.print(f"[red]Data file not found: {DATA_PATH}[/red]")
+        console.print(f"[red]{t('cli.data_not_found', path=DATA_PATH)}[/red]")
         return
 
     try:
@@ -415,7 +408,7 @@ def main() -> None:
         validate_dataset(bi)
         run_cli(bi)
     except Exception as exc:
-        console.print(f"[red]Startup failed: {exc}[/red]")
+        console.print(f"[red]{t('cli.startup_failed', error=exc)}[/red]")
 
 
 if __name__ == "__main__":

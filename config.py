@@ -51,6 +51,10 @@ def get_config() -> dict[str, Any]:
 
     log_to_file = os.getenv("LOG_TO_FILE", "true").lower().strip() in {"1", "true", "yes", "on"}
 
+    ui_locale = os.getenv("UI_LOCALE", "en").lower().strip()
+    if not ui_locale.startswith("pt"):
+        ui_locale = "en"
+
     return {
         "OLLAMA_HOST": ollama_host,
         "OLLAMA_TIMEOUT": ollama_timeout,
@@ -63,4 +67,5 @@ def get_config() -> dict[str, Any]:
         "DEFAULT_WATCHDOG_SENSITIVITY": default_watchdog_sensitivity,
         "LOG_LEVEL": log_level,
         "LOG_TO_FILE": log_to_file,
+        "UI_LOCALE": ui_locale,
     }

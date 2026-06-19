@@ -264,6 +264,7 @@ Configuration lives in `config.py` at the project root. Values can be overridden
 | `DEFAULT_WATCHDOG_SENSITIVITY` | `normal` | Watchdog level: `relaxed`, `normal`, or `strict` |
 | `LOG_LEVEL` | `INFO` | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_TO_FILE` | `true` | Write logs to `logs/chab_ai_engine.log` |
+| `UI_LOCALE` | `en` | UI language: `en` or `pt` (Streamlit sidebar can override per session) |
 | `DEFAULT_DELAY_COST_PER_MINUTE` | `50` | Delay cost per minute (€) |
 | `DEFAULT_CANCELLATION_COST` | `200` | Fixed cancellation cost (€) |
 
@@ -296,6 +297,8 @@ Or use the root entry point:
 python3 main.py
 ```
 
+Set UI language with `UI_LOCALE=pt` or `python3 main.py --lang pt`.
+
 In the terminal:
 
 - ask questions in plain English
@@ -314,6 +317,8 @@ Run from the project root:
 ```bash
 streamlit run src/app.py
 ```
+
+Default language comes from `UI_LOCALE`; users can also switch language in the Streamlit sidebar.
 
 This matters because `config.py` is stored in the project root and the app expects the repository root to be part of the Python path.
 
@@ -405,6 +410,7 @@ logs/chab_ai_engine.log
 Useful events include dataset loading, Ollama model detection failures, rejected SQL, model attempts, query timings, and keyword fallback usage. Control verbosity with:
 
 ```bash
+export UI_LOCALE=pt
 export LOG_LEVEL=DEBUG
 export LOG_TO_FILE=false
 ```
@@ -568,7 +574,6 @@ The project currently includes:
 Possible next improvements:
 
 - add calendar dates to the CSV for day-of-week and seasonal analysis
-- unified PT/EN localization
 - deployment-ready configuration management
 
 ## License
