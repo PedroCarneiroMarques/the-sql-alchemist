@@ -4,8 +4,10 @@ The SQL Alchemist is a local Business Intelligence assistant that turns natural 
 
 It currently supports two interfaces:
 
-- a terminal experience through `src/main.py`
+- a terminal experience through `src/main.py` (or `main.py` at the project root)
 - a Streamlit web app through `src/app.py`
+
+Both interfaces share the same analytics engine in `src/core.py`.
 
 The project uses local LLMs via Ollama to generate SQL, applies fallback logic when model output fails, and provides interactive analytics for airline performance, disruption cost, and operational quality.
 
@@ -22,14 +24,30 @@ chab_ai_engine/
 ├── notebooks/
 │   └── main.ipynb
 ├── src/
-│   ├── app.py
-│   └── main.py
-├── .gitignore
+│   ├── core.py          # shared BI engine (ChatBI, analytics, explanations)
+│   ├── main.py          # CLI interface
+│   └── app.py           # Streamlit interface
+├── tests/
+│   ├── conftest.py
+│   └── test_core.py
 ├── config.py
+├── main.py              # convenience CLI entry point
+├── .gitignore
 ├── LICENSE
 ├── README.md
 └── requirements.txt
 ```
+
+### Architecture
+
+| Module | Responsibility |
+|--------|----------------|
+| `config.py` | Environment-based configuration (`OLLAMA_HOST`, `DATA_PATH`, model chain, costs) |
+| `src/core.py` | DuckDB loading, Ollama SQL generation, fallback logic, watchdog, Airline Wars, KPI helpers |
+| `src/main.py` | Terminal UI with Rich (`/dashboard`, `/wars`, `/suggest`, chat) |
+| `src/app.py` | Streamlit dashboards, charts, chat, CSV export |
+| `notebooks/main.ipynb` | Lightweight experimentation that imports from `src/core.py` |
+| `tests/test_core.py` | Automated tests for core behavior |
 
 ## What the Project Does
 
@@ -42,13 +60,13 @@ The engine loads `data/flights.csv` into an in-memory DuckDB table named `flight
 5. returns results in either CLI or Streamlit UI
 6. falls back to keyword-based SQL when model generation fails
 
-This makes the project usable even when a model is unavailable, returns invalid SQL, or cannot be reached locally.[file:1549]
+This makes the project usable even when a model is unavailable, returns invalid SQL, or cannot be reached locally.
 
 ## Interfaces
 
 ### 1. Terminal Interface
 
-The CLI version in `src/main.py` provides a lightweight local chat workflow for asking flight-related questions directly in the terminal.[file:1549][file:1548]
+The CLI version in `src/main.py` provides a lightweight local chat workflow for asking flight-related questions directly in the terminal.
 
 ### 2. Streamlit Web App
 
@@ -62,6 +80,7 @@ The Streamlit app in `src/app.py` extends the project with:
 - airline-vs-airline comparison
 - result explanation logic
 - suggested prompts for faster interaction
+- CSV export for dashboard and chat results
 
 ## Data Model
 
@@ -88,17 +107,17 @@ Supported status values include:
 - `Delayed`
 - `Cancelled`
 
-The dataset has been expanded with more realistic records to improve aggregate analysis, filtering, and routing comparisons.[file:1549]
+The dataset has been expanded with more realistic records to improve aggregate analysis, filtering, and routing comparisons.
 
 ## Main Features
 
 ### Natural Language to SQL
 
-Users can ask questions in plain English, and the app uses a local Ollama model to convert the question into a DuckDB `SELECT` query.[file:1549][file:1548]
+Users can ask questions in plain English, and the app uses a local Ollama model to convert the question into a DuckDB `SELECT` query.
 
 ### SQL Safety and Fallback
 
-To improve reliability, generated SQL is sanitized and validated before execution. If generation fails or produces invalid output, the app falls back to intent-based SQL patterns such as average latency, cancellations, delays, or counts by status.[file:1549][file:1548]
+To improve reliability, generated SQL is sanitized and validated before execution. If generation fails or produces invalid output, the app falls back to intent-based SQL patterns such as average latency, cancellations, delays, or counts by status.
 
 ### Streamlit Analytics Layer
 
@@ -187,28 +206,23 @@ ollama pull deepseek-r1:8b
 
 ## Configuration
 
-Create or update `config.py` in the project root.
+Configuration lives in `config.py` at the project root. Values can be overridden with environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATA_PATH` | `data/flights.csv` | Path to the flights dataset |
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint |
+| `OLLAMA_TIMEOUT` | `180` | Request timeout in seconds |
+| `DEFAULT_MODEL_CHAIN` | comma-separated model list | Fallback order for SQL generation |
+| `DEFAULT_DELAY_COST_PER_MINUTE` | `50` | Delay cost per minute (€) |
+| `DEFAULT_CANCELLATION_COST` | `200` | Fixed cancellation cost (€) |
 
 Example:
 
-```python
-def get_config():
-    return {
-        "DATA_PATH": "data/flights.csv",
-        "OLLAMA_HOST": "http://localhost:11434",
-        "OLLAMA_TIMEOUT": 180,
-        "DEFAULT_MODEL_CHAIN": [
-            "mistral:7b",
-            "phi4:14b",
-            "qwen2.5-coder:14b",
-            "gemma4:26b",
-            "qwen3.6:27b",
-            "qwen3.6:35b-a3b",
-            "deepseek-r1:8b",
-        ],
-        "DEFAULT_DELAY_COST_PER_MINUTE": 50,
-        "DEFAULT_CANCELLATION_COST": 200,
-    }
+```bash
+export DATA_PATH="data/flights.csv"
+export OLLAMA_HOST="http://localhost:11434"
+export DEFAULT_MODEL_CHAIN="mistral:7b,phi4:14b,qwen2.5-coder:14b"
 ```
 
 ## Running the CLI Version
@@ -219,9 +233,16 @@ Run from the project root:
 python3 src/main.py
 ```
 
+Or use the root entry point:
+
+```bash
+python3 main.py
+```
+
 In the terminal:
 
 - ask questions in plain English
+- use `/dashboard`, `/wars`, `/suggest`, `/models`, or `/help`
 - type `quit`, `exit`, or `q` to leave
 
 ## Running the Streamlit App
@@ -254,6 +275,17 @@ The Streamlit app currently includes:
 - global airline filters
 - route-level airline comparison
 - in-session chat history
+- CSV download buttons for filtered data, cost summaries, Airline Wars, and chat results
+
+## Testing
+
+Run the automated test suite from the project root:
+
+```bash
+python3 -m pytest tests/ -v
+```
+
+The tests cover SQL safety, keyword fallback, watchdog logic, Airline Wars, explanations, and CSV export helpers. They do not require a running Ollama instance.
 
 ## Screenshots and Images
 
@@ -270,13 +302,7 @@ Suggested naming convention:
 - `docs/images/airline-wars.png`
 - `docs/images/project-structure.png`
 
-After adding screenshots, you can reference them in the README like this:
-
-```md
-
-
-
-```
+After adding screenshots, reference them in the README with standard Markdown image syntax.
 
 ## Typical Questions to Ask
 
@@ -302,12 +328,13 @@ To improve stability:
 - execution errors are surfaced in the UI
 - result explanations attempt to summarize returned data safely
 
-Recent fixes also improved:
+Recent improvements include:
 
-- local import handling for `config.py`
-- cleanup of sandbox-only code from the app
+- shared analytics engine in `src/core.py`
+- removal of duplicated notebook logic
 - safer explanation logic for result metrics
-- handling of list/string edge cases in result summaries
+- CSV export from the Streamlit UI
+- automated `pytest` coverage for core behavior
 
 ## Troubleshooting
 
@@ -386,22 +413,23 @@ Additional dependency notes are documented in:
 docs/DEPENDENCIES.md
 ```
 
-Core libraries currently used include DuckDB, Ollama, Streamlit, Plotly, Pandas, and Rich.[file:1550]
+Core libraries currently used include DuckDB, Ollama, Streamlit, Plotly, Pandas, Rich, and pytest.
 
 ## Notebook
 
-The project also includes a notebook version for experimentation:
+The notebook imports the production modules instead of duplicating them:
 
 ```text
 notebooks/main.ipynb
 ```
 
-This is useful for prototyping logic, testing query generation, and exploring the dataset outside the app flow.[file:1548]
+Use it to validate dataset loading, test fallback queries, and explore watchdog/cost outputs without launching the full CLI or Streamlit app.
 
 ## Current Status
 
 The project currently includes:
 
+- shared engine in `src/core.py`
 - CLI interface in `src/main.py`
 - Streamlit interface in `src/app.py`
 - local LLM integration via Ollama
@@ -410,8 +438,8 @@ The project currently includes:
 - business impact estimation
 - watchdog anomaly scoring
 - airline rivalry comparison
-- corrected import and explanation logic
-- GitHub-synced latest app version
+- CSV export from the web UI
+- automated tests in `tests/`
 
 ## Tech Stack
 
@@ -422,17 +450,16 @@ The project currently includes:
 - Plotly
 - Pandas
 - Rich
+- pytest
 
 ## Roadmap
 
 Possible next improvements:
 
-- export results to CSV from the UI
 - richer SQL guardrails
 - configurable model profiles
 - better chart selection logic
 - screenshot-rich documentation
-- automated tests for explanation and fallback behavior
 - deployment-ready configuration management
 
 ## License
