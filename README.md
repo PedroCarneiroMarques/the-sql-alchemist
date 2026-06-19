@@ -33,6 +33,8 @@ chab_ai_engine/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml
+├── Dockerfile
+├── docker-compose.yml
 ├── config.py
 ├── main.py              # convenience CLI entry point
 ├── .env.example
@@ -283,6 +285,48 @@ The app will usually open at:
 http://localhost:8501
 ```
 
+## Docker Demo
+
+Run the Streamlit app and Ollama together with Docker Compose:
+
+```bash
+docker compose up --build -d
+```
+
+Open:
+
+```text
+http://localhost:8501
+```
+
+Pull at least one model into the Ollama container (first run only):
+
+```bash
+docker compose exec ollama ollama pull mistral:7b
+```
+
+Optional models for balanced/accurate profiles:
+
+```bash
+docker compose exec ollama ollama pull phi4:14b
+docker compose exec ollama ollama pull qwen2.5-coder:14b
+```
+
+View logs:
+
+```bash
+docker compose logs -f app
+docker compose logs -f ollama
+```
+
+Stop the stack:
+
+```bash
+docker compose down
+```
+
+Exported CSV files and application logs are written to `exports/` and `logs/` on the host via volume mounts.
+
 ## Streamlit Features
 
 The Streamlit app currently includes:
@@ -481,6 +525,7 @@ The project currently includes:
 - airline rivalry comparison
 - CSV export from the web UI
 - automated tests in `tests/`
+- Docker Compose stack for Streamlit + Ollama
 
 ## Tech Stack
 
@@ -499,7 +544,6 @@ Possible next improvements:
 
 - richer SQL guardrails
 - configurable model profiles
-- better chart selection logic
 - screenshot-rich documentation
 - deployment-ready configuration management
 

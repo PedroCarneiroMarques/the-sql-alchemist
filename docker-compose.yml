@@ -1,0 +1,41 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: chab-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chab-streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      DATA_PATH: data/flights.csv
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_TIMEOUT: 180
+      LOG_LEVEL: INFO
+      LOG_TO_FILE: "true"
+      DEFAULT_MODEL_PROFILE: balanced
+      DEFAULT_WATCHDOG_SENSITIVITY: normal
+    volumes:
+      - ./exports:/app/exports
+      - ./logs:/app/logs
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
