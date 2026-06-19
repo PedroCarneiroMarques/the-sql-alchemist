@@ -22,6 +22,8 @@ from src.core import (
     MODEL_PROFILE_LABELS,
     MODEL_PROFILES,
     SUGGESTED_QUESTIONS,
+    WATCHDOG_SENSITIVITY_LABELS,
+    DEFAULT_WATCHDOG_SENSITIVITY,
     add_watchdog_columns,
     aggregate_cost_by_airline,
     aggregate_watchdog_summary,
@@ -209,6 +211,22 @@ with st.sidebar:
         step=10,
     )
 
+    st.subheader("Watchdog")
+
+    sensitivity_options = list(WATCHDOG_SENSITIVITY_LABELS.keys())
+    default_sensitivity_index = (
+        sensitivity_options.index(DEFAULT_WATCHDOG_SENSITIVITY)
+        if DEFAULT_WATCHDOG_SENSITIVITY in sensitivity_options
+        else sensitivity_options.index("normal")
+    )
+
+    watchdog_sensitivity = st.selectbox(
+        "Sensitivity",
+        options=sensitivity_options,
+        index=default_sensitivity_index,
+        format_func=lambda key: WATCHDOG_SENSITIVITY_LABELS.get(key, key),
+    )
+
     st.divider()
     st.header("Global Filters")
 
@@ -252,6 +270,7 @@ with tab1:
         selected_airlines=selected_airlines,
         delay_cost_per_minute=delay_cost_per_minute,
         cancellation_cost=cancellation_cost,
+        watchdog_sensitivity=watchdog_sensitivity,
     )
 
     c1, c2, c3 = st.columns(3)

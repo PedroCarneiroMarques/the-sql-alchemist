@@ -152,7 +152,7 @@ The app classifies records into operational quality groups:
 - `Review`
 - `High Risk`
 
-This is based on airline-relative latency behavior using average, standard deviation, p95, and p99 thresholds.
+This is based on airline-relative latency behavior using configurable sensitivity (`relaxed`, `normal`, `strict`) with percentile and standard-deviation thresholds.
 
 ### Airline Wars
 
@@ -221,6 +221,7 @@ Configuration lives in `config.py` at the project root. Values can be overridden
 | `DEFAULT_MODEL_PROFILE` | `balanced` | Default profile: `fast`, `balanced`, or `accurate` |
 | `MODEL_PROFILE_FAST` | `mistral:7b` | Model chain for the fast profile |
 | `MODEL_PROFILE_ACCURATE` | larger models first | Model chain for the accurate profile |
+| `DEFAULT_WATCHDOG_SENSITIVITY` | `normal` | Watchdog level: `relaxed`, `normal`, or `strict` |
 | `DEFAULT_DELAY_COST_PER_MINUTE` | `50` | Delay cost per minute (€) |
 | `DEFAULT_CANCELLATION_COST` | `200` | Fixed cancellation cost (€) |
 
@@ -258,6 +259,7 @@ In the terminal:
 - ask questions in plain English
 - use `/filter`, `/profile`, `/dashboard`, `/wars`, `/export`, `/suggest`, `/models`, or `/help`
 - switch model profile: `/profile fast`, `/profile balanced`, `/profile accurate`
+- adjust watchdog sensitivity: `/watchdog relaxed`, `/watchdog normal`, `/watchdog strict`
 - quick wars: `/wars AirlineA AirlineB Destination`
 - type `quit`, `exit`, or `q` to leave
 

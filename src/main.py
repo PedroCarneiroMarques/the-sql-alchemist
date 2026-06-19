@@ -24,6 +24,8 @@ from src.core import (
     DEFAULT_MODEL_PROFILE,
     MODEL_PROFILES,
     SUGGESTED_QUESTIONS,
+    WATCHDOG_SENSITIVITY_LABELS,
+    DEFAULT_WATCHDOG_SENSITIVITY,
     add_watchdog_columns,
     aggregate_cost_by_airline,
     explain_airline_wars,
@@ -35,6 +37,7 @@ from src.core import (
     resolve_profile_chain,
     default_airline_selection,
     normalize_model_profile,
+    normalize_watchdog_sensitivity,
     validate_dataset,
     write_dataframe_csv,
 )
@@ -48,6 +51,7 @@ class CliSession:
     selected_airlines: list[str]
     selected_chain: list[str]
     active_profile: str = DEFAULT_MODEL_PROFILE
+    watchdog_sensitivity: str = DEFAULT_WATCHDOG_SENSITIVITY
     last_export_df: pd.DataFrame | None = None
     last_export_name: str = "query_result"
 
@@ -189,6 +193,24 @@ def handle_profile(session: CliSession, available_models: list[str], args: list[
     )
 
 
+def handle_watchdog(session: CliSession, args: list[str]) -> None:
+    if not args:
+        console.print(f"[bold]Active watchdog sensitivity:[/bold] {session.watchdog_sensitivity}")
+        for name, label in WATCHDOG_SENSITIVITY_LABELS.items():
+            marker = " (active)" if name == session.watchdog_sensitivity else ""
+            console.print(f"  {name}{marker}: {label}")
+        console.print("Use /watchdog relaxed|normal|strict to switch.")
+        return
+
+    try:
+        session.watchdog_sensitivity = normalize_watchdog_sensitivity(args[0])
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        return
+
+    console.print(f"[green]Watchdog sensitivity set to {session.watchdog_sensitivity}.[/green]")
+
+
 def handle_export(session: CliSession, filename: str | None = None) -> None:
     if session.last_export_df is None or session.last_export_df.empty:
         console.print("[yellow]Nothing to export yet. Run a query or /dashboard first.[/yellow]")
@@ -257,6 +279,7 @@ def handle_dashboard(bi: ChatBI, session: CliSession) -> None:
         selected_airlines=session.selected_airlines,
         delay_cost_per_minute=DEFAULT_DELAY_COST_PER_MINUTE,
         cancellation_cost=DEFAULT_CANCELLATION_COST,
+        watchdog_sensitivity=session.watchdog_sensitivity,
     )
     cost_by_airline = aggregate_cost_by_airline(filtered_df)
 
@@ -284,6 +307,7 @@ def run_cli(bi: ChatBI) -> None:
         selected_airlines=default_airline_selection(all_airlines),
         selected_chain=resolve_profile_chain(DEFAULT_MODEL_PROFILE, bi.available_models()),
         active_profile=DEFAULT_MODEL_PROFILE,
+        watchdog_sensitivity=DEFAULT_WATCHDOG_SENSITIVITY,
     )
 
     console.print(Panel.fit(
@@ -293,6 +317,7 @@ def run_cli(bi: ChatBI) -> None:
         "  /suggest     Show suggested questions\n"
         "  /filter      Choose airlines for dashboard and wars\n"
         "  /profile     Show or set model profile (fast|balanced|accurate)\n"
+        "  /watchdog    Show or set watchdog sensitivity\n"
         "  /dashboard   Show KPI summary + Watchdog\n"
         "  /wars        Interactive Airline Wars comparison\n"
         "  /export      Save last result to exports/\n"
@@ -303,6 +328,7 @@ def run_cli(bi: ChatBI) -> None:
     ))
     console.print(
         f"[dim]Active profile:[/dim] {session.active_profile} | "
+        f"[dim]Watchdog:[/dim] {session.watchdog_sensitivity} | "
         f"[dim]Airline filter:[/dim] "
         f"{', '.join(session.selected_airlines) if session.selected_airlines else 'all airlines'}"
     )
@@ -316,8 +342,9 @@ def run_cli(bi: ChatBI) -> None:
 
         if user_input == "/help":
             console.print(
-                "Commands: /suggest, /filter, /profile, /dashboard, /wars, /export, /models.\n"
+                "Commands: /suggest, /filter, /profile, /watchdog, /dashboard, /wars, /export, /models.\n"
                 "Profiles: /profile fast | /profile balanced | /profile accurate\n"
+                "Watchdog: /watchdog relaxed | /watchdog normal | /watchdog strict\n"
                 "Quick wars: /wars AirlineA AirlineB Destination\n"
                 "Quick export: /export my_file.csv"
             )
@@ -346,6 +373,11 @@ def run_cli(bi: ChatBI) -> None:
         if user_input.startswith("/profile"):
             args = user_input.split()[1:]
             handle_profile(session, bi.available_models(), args)
+            continue
+
+        if user_input.startswith("/watchdog"):
+            args = user_input.split()[1:]
+            handle_watchdog(session, args)
             continue
 
         if user_input.startswith("/wars"):

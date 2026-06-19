@@ -41,6 +41,10 @@ def get_config() -> dict[str, Any]:
     if default_model_profile not in model_profiles:
         default_model_profile = "balanced"
 
+    default_watchdog_sensitivity = os.getenv("DEFAULT_WATCHDOG_SENSITIVITY", "normal").lower().strip()
+    if default_watchdog_sensitivity not in {"relaxed", "normal", "strict"}:
+        default_watchdog_sensitivity = "normal"
+
     return {
         "OLLAMA_HOST": ollama_host,
         "OLLAMA_TIMEOUT": ollama_timeout,
@@ -50,4 +54,5 @@ def get_config() -> dict[str, Any]:
         "DEFAULT_MODEL_CHAIN": default_model_chain,
         "MODEL_PROFILES": model_profiles,
         "DEFAULT_MODEL_PROFILE": default_model_profile,
+        "DEFAULT_WATCHDOG_SENSITIVITY": default_watchdog_sensitivity,
     }

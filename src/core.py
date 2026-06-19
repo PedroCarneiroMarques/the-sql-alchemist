@@ -33,6 +33,46 @@ MODEL_PROFILE_LABELS = {
 }
 DEFAULT_DELAY_COST_PER_MINUTE = CFG["DEFAULT_DELAY_COST_PER_MINUTE"]
 DEFAULT_CANCELLATION_COST = CFG["DEFAULT_CANCELLATION_COST"]
+DEFAULT_WATCHDOG_SENSITIVITY = CFG["DEFAULT_WATCHDOG_SENSITIVITY"]
+
+WATCHDOG_SENSITIVITY_LABELS = {
+    "relaxed": "Relaxed — fewer Review/High Risk flags",
+    "normal": "Normal — balanced anomaly detection",
+    "strict": "Strict — more Review/High Risk flags",
+}
+
+
+@dataclass(frozen=True)
+class WatchdogSettings:
+    review_percentile: float
+    high_risk_percentile: float
+    review_std_multiplier: float
+    high_risk_std_multiplier: float
+    review_score: int = 65
+    high_risk_score: int = 95
+    cancelled_score: int = 100
+
+
+WATCHDOG_SENSITIVITY_PROFILES: dict[str, WatchdogSettings] = {
+    "relaxed": WatchdogSettings(
+        review_percentile=0.98,
+        high_risk_percentile=0.995,
+        review_std_multiplier=3.0,
+        high_risk_std_multiplier=4.0,
+    ),
+    "normal": WatchdogSettings(
+        review_percentile=0.95,
+        high_risk_percentile=0.99,
+        review_std_multiplier=2.0,
+        high_risk_std_multiplier=3.0,
+    ),
+    "strict": WatchdogSettings(
+        review_percentile=0.90,
+        high_risk_percentile=0.95,
+        review_std_multiplier=1.5,
+        high_risk_std_multiplier=2.0,
+    ),
+}
 
 REQUIRED_COLUMNS = {
     "flight_id",
@@ -466,7 +506,9 @@ def add_watchdog_columns(
     selected_airlines: list[str],
     delay_cost_per_minute: int = DEFAULT_DELAY_COST_PER_MINUTE,
     cancellation_cost: int = DEFAULT_CANCELLATION_COST,
+    watchdog_sensitivity: str = DEFAULT_WATCHDOG_SENSITIVITY,
 ) -> pd.DataFrame:
+    settings = get_watchdog_settings(watchdog_sensitivity)
     filter_sql, filter_params = build_airline_filter(selected_airlines)
 
     query = f"""
@@ -480,8 +522,8 @@ def add_watchdog_columns(
             airline,
             AVG(COALESCE(latency_minutes, 0)) AS avg_latency,
             STDDEV_POP(COALESCE(latency_minutes, 0)) AS std_latency,
-            QUANTILE_CONT(COALESCE(latency_minutes, 0), 0.95) AS p95_latency,
-            QUANTILE_CONT(COALESCE(latency_minutes, 0), 0.99) AS p99_latency
+            QUANTILE_CONT(COALESCE(latency_minutes, 0), {settings.review_percentile}) AS review_latency,
+            QUANTILE_CONT(COALESCE(latency_minutes, 0), {settings.high_risk_percentile}) AS high_risk_latency
         FROM base
         GROUP BY airline
     )
@@ -489,25 +531,25 @@ def add_watchdog_columns(
         b.*,
         COALESCE(s.avg_latency, 0) AS avg_latency_airline,
         COALESCE(s.std_latency, 0) AS std_latency_airline,
-        COALESCE(s.p95_latency, 0) AS p95_latency_airline,
-        COALESCE(s.p99_latency, 0) AS p99_latency_airline,
+        COALESCE(s.review_latency, 0) AS p95_latency_airline,
+        COALESCE(s.high_risk_latency, 0) AS p99_latency_airline,
         CASE
-            WHEN b.status = 'Cancelled' THEN 100
-            WHEN COALESCE(b.latency_minutes, 0) >= COALESCE(s.p99_latency, 0)
-                 AND COALESCE(b.latency_minutes, 0) > COALESCE(s.avg_latency, 0) + 3 * COALESCE(s.std_latency, 0)
-                THEN 95
-            WHEN COALESCE(b.latency_minutes, 0) >= COALESCE(s.p95_latency, 0)
-                 OR COALESCE(b.latency_minutes, 0) > COALESCE(s.avg_latency, 0) + 2 * COALESCE(s.std_latency, 0)
-                THEN 65
+            WHEN b.status = 'Cancelled' THEN {settings.cancelled_score}
+            WHEN COALESCE(b.latency_minutes, 0) >= COALESCE(s.high_risk_latency, 0)
+                 AND COALESCE(b.latency_minutes, 0) > COALESCE(s.avg_latency, 0) + {settings.high_risk_std_multiplier} * COALESCE(s.std_latency, 0)
+                THEN {settings.high_risk_score}
+            WHEN COALESCE(b.latency_minutes, 0) >= COALESCE(s.review_latency, 0)
+                 OR COALESCE(b.latency_minutes, 0) > COALESCE(s.avg_latency, 0) + {settings.review_std_multiplier} * COALESCE(s.std_latency, 0)
+                THEN {settings.review_score}
             ELSE 15
         END AS quality_score,
         CASE
             WHEN b.status = 'Cancelled' THEN 'High Risk'
-            WHEN COALESCE(b.latency_minutes, 0) >= COALESCE(s.p99_latency, 0)
-                 AND COALESCE(b.latency_minutes, 0) > COALESCE(s.avg_latency, 0) + 3 * COALESCE(s.std_latency, 0)
+            WHEN COALESCE(b.latency_minutes, 0) >= COALESCE(s.high_risk_latency, 0)
+                 AND COALESCE(b.latency_minutes, 0) > COALESCE(s.avg_latency, 0) + {settings.high_risk_std_multiplier} * COALESCE(s.std_latency, 0)
                 THEN 'High Risk'
-            WHEN COALESCE(b.latency_minutes, 0) >= COALESCE(s.p95_latency, 0)
-                 OR COALESCE(b.latency_minutes, 0) > COALESCE(s.avg_latency, 0) + 2 * COALESCE(s.std_latency, 0)
+            WHEN COALESCE(b.latency_minutes, 0) >= COALESCE(s.review_latency, 0)
+                 OR COALESCE(b.latency_minutes, 0) > COALESCE(s.avg_latency, 0) + {settings.review_std_multiplier} * COALESCE(s.std_latency, 0)
                 THEN 'Review'
             ELSE 'Reliable'
         END AS quality_flag
@@ -778,6 +820,18 @@ def normalize_model_profile(profile: str) -> str:
 
 def get_profile_chain(profile: str) -> list[str]:
     return list(MODEL_PROFILES[normalize_model_profile(profile)])
+
+
+def normalize_watchdog_sensitivity(sensitivity: str) -> str:
+    key = sensitivity.lower().strip()
+    if key not in WATCHDOG_SENSITIVITY_PROFILES:
+        valid = ", ".join(WATCHDOG_SENSITIVITY_PROFILES)
+        raise ValueError(f"Unknown watchdog sensitivity '{sensitivity}'. Choose: {valid}")
+    return key
+
+
+def get_watchdog_settings(sensitivity: str) -> WatchdogSettings:
+    return WATCHDOG_SENSITIVITY_PROFILES[normalize_watchdog_sensitivity(sensitivity)]
 
 
 def resolve_profile_chain(profile: str, available_models: list[str]) -> list[str]:

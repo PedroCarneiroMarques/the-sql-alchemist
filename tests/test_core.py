@@ -24,6 +24,8 @@ from src.core import (
     resolve_profile_chain,
     normalize_model_profile,
     resolve_model_chain,
+    normalize_watchdog_sensitivity,
+    get_watchdog_settings,
     safe_get,
     safe_sorted_first_record,
     safe_sorted_top_n_records,
@@ -311,3 +313,22 @@ class TestModelProfiles:
 
         chain = get_profile_chain("balanced")
         assert chain == DEFAULT_MODEL_CHAIN
+
+
+class TestWatchdogSensitivity:
+    def test_normalize_invalid_sensitivity(self) -> None:
+        with pytest.raises(ValueError, match="Unknown watchdog sensitivity"):
+            normalize_watchdog_sensitivity("lax")
+
+    def test_get_watchdog_settings_normal(self) -> None:
+        settings = get_watchdog_settings("normal")
+        assert settings.review_percentile == 0.95
+        assert settings.high_risk_std_multiplier == 3.0
+
+    def test_strict_flags_more_rows_than_relaxed(self, bi: ChatBI) -> None:
+        relaxed = add_watchdog_columns(bi, selected_airlines=[], watchdog_sensitivity="relaxed")
+        strict = add_watchdog_columns(bi, selected_airlines=[], watchdog_sensitivity="strict")
+
+        relaxed_flagged = int(relaxed["quality_flag"].isin(["Review", "High Risk"]).sum())
+        strict_flagged = int(strict["quality_flag"].isin(["Review", "High Risk"]).sum())
+        assert strict_flagged >= relaxed_flagged
