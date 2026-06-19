@@ -78,6 +78,8 @@ class TestChatBISqlSafety:
         prompt = bi._build_prompt("test question")
         assert "Which airlines have the highest average latency?" in prompt
         assert "Status values: On-Time, Delayed, Cancelled" in prompt
+        assert "departure_time_of_day" in prompt
+        assert "route (derived" in prompt
         assert "test question" in prompt
 
     def test_ensure_limit_appends_default(self, bi: ChatBI) -> None:
@@ -98,6 +100,8 @@ class TestKeywordFallback:
             ("show delayed flights", "status IN ('Delayed', 'Cancelled')"),
             ("estimated total cost", "estimated_cost"),
             ("how many flights total", "GROUP BY status"),
+            ("which routes have highest delay", "GROUP BY route"),
+            ("delays by time of day", "departure_time_of_day"),
         ],
     )
     def test_keyword_fallback_sql(self, bi: ChatBI, question: str, expected_fragment: str) -> None:
@@ -221,6 +225,42 @@ class TestExplanations:
 class TestDatasetAndExport:
     def test_validate_dataset_passes(self, bi: ChatBI) -> None:
         validate_dataset(bi)
+
+    def test_enriched_columns_exist(self, bi: ChatBI) -> None:
+        columns = set(bi.get_columns())
+        assert "route" in columns
+        assert "departure_hour" in columns
+        assert "departure_time_of_day" in columns
+        assert "scheduled_duration_minutes" in columns
+
+    def test_route_format(self, bi: ChatBI) -> None:
+        sample = bi.dataframe("SELECT route, origin, destination FROM flights LIMIT 1")
+        row = sample.iloc[0]
+        assert row["route"] == f"{row['origin']} → {row['destination']}"
+
+    def test_departure_hour_parsing(self, bi: ChatBI) -> None:
+        sample = bi.dataframe(
+            "SELECT departure_time, departure_hour, departure_minute "
+            "FROM flights WHERE flight_id = 1"
+        )
+        assert int(sample.iloc[0]["departure_hour"]) == 9
+        assert int(sample.iloc[0]["departure_minute"]) == 10
+
+    def test_scheduled_duration_handles_overnight(self, bi: ChatBI) -> None:
+        sample = bi.dataframe(
+            "SELECT departure_time, arrival_time, scheduled_duration_minutes "
+            "FROM flights WHERE flight_id = 76"
+        )
+        assert int(sample.iloc[0]["scheduled_duration_minutes"]) == 438
+
+    def test_departure_time_of_day_values(self, bi: ChatBI) -> None:
+        values = set(
+            bi.dataframe("SELECT DISTINCT departure_time_of_day FROM flights")[
+                "departure_time_of_day"
+            ].tolist()
+        )
+        assert values.issubset({"Morning", "Afternoon", "Evening", "Night"})
+        assert len(values) > 1
 
     def test_dataframe_to_csv_bytes_roundtrip(self) -> None:
         df = pd.DataFrame({"a": [1, 2], "b": ["x", "y"]})

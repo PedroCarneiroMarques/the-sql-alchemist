@@ -117,16 +117,25 @@ The main dataset is stored in:
 data/flights.csv
 ```
 
-The `flights` table contains these core fields:
+The `flights` table is loaded from CSV and enriched at query time with derived analytics fields.
+
+**Source columns** (from `flights.csv`):
 
 - `flight_id`
 - `airline`
 - `origin`
 - `destination`
-- `departure_time`
-- `arrival_time`
+- `departure_time` (HH:MM)
+- `arrival_time` (HH:MM)
 - `latency_minutes`
 - `status`
+
+**Derived columns** (computed when DuckDB loads the dataset):
+
+- `route` — `origin → destination` (e.g. `CDG → JFK`)
+- `departure_hour`, `departure_minute`, `arrival_hour`, `arrival_minute` — parsed from time strings
+- `departure_time_of_day` — `Morning`, `Afternoon`, `Evening`, or `Night`
+- `scheduled_duration_minutes` — scheduled block time between departure and arrival (overnight-aware)
 
 Supported status values include:
 
@@ -135,6 +144,8 @@ Supported status values include:
 - `Cancelled`
 
 The dataset has been expanded with more realistic records to improve aggregate analysis, filtering, and routing comparisons.
+
+The CSV stores clock times only (no calendar dates), so day-of-week and month analysis would require adding date fields to the source file in a future release.
 
 ## Main Features
 
@@ -556,7 +567,7 @@ The project currently includes:
 
 Possible next improvements:
 
-- enrich data model with parsed timestamps and route dimensions
+- add calendar dates to the CSV for day-of-week and seasonal analysis
 - chat history memory optimization in Streamlit
 - unified PT/EN localization
 - deployment-ready configuration management

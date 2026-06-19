@@ -131,12 +131,26 @@ REQUIRED_COLUMNS = {
     "status",
 }
 
+DERIVED_COLUMNS = {
+    "route",
+    "departure_hour",
+    "departure_minute",
+    "arrival_hour",
+    "arrival_minute",
+    "departure_time_of_day",
+    "scheduled_duration_minutes",
+}
+
+TIME_OF_DAY_VALUES = ("Morning", "Afternoon", "Evening", "Night")
+
 SUGGESTED_QUESTIONS = [
     "Which airlines have the highest average latency?",
     "How many flights were cancelled by airline?",
     "Show delayed flights ordered by latency.",
     "What is the distribution of flight statuses?",
     "Which routes have the highest average delay?",
+    "What is the average latency by departure time of day?",
+    "Which routes have the highest cancellation rate?",
     "What is the estimated total cost by airline?",
     "Which destinations have the most delayed flights?",
     "Show the top 10 most expensive disrupted flights.",
@@ -146,21 +160,58 @@ SUGGESTED_QUESTIONS = [
 
 FLIGHTS_LOAD_SQL = """
 CREATE OR REPLACE TABLE flights AS
-SELECT *
-FROM read_csv_auto(
-    ?,
-    header = true,
-    types = {
-        'flight_id': 'BIGINT',
-        'airline': 'VARCHAR',
-        'origin': 'VARCHAR',
-        'destination': 'VARCHAR',
-        'departure_time': 'VARCHAR',
-        'arrival_time': 'VARCHAR',
-        'latency_minutes': 'DOUBLE',
-        'status': 'VARCHAR'
-    }
+WITH raw AS (
+    SELECT *
+    FROM read_csv_auto(
+        ?,
+        header = true,
+        types = {
+            'flight_id': 'BIGINT',
+            'airline': 'VARCHAR',
+            'origin': 'VARCHAR',
+            'destination': 'VARCHAR',
+            'departure_time': 'VARCHAR',
+            'arrival_time': 'VARCHAR',
+            'latency_minutes': 'DOUBLE',
+            'status': 'VARCHAR'
+        }
+    )
+),
+parsed AS (
+    SELECT
+        *,
+        TRY_CAST(SPLIT_PART(departure_time, ':', 1) AS INTEGER) AS departure_hour,
+        TRY_CAST(SPLIT_PART(departure_time, ':', 2) AS INTEGER) AS departure_minute,
+        TRY_CAST(SPLIT_PART(arrival_time, ':', 1) AS INTEGER) AS arrival_hour,
+        TRY_CAST(SPLIT_PART(arrival_time, ':', 2) AS INTEGER) AS arrival_minute
+    FROM raw
 )
+SELECT
+    flight_id,
+    airline,
+    origin,
+    destination,
+    departure_time,
+    arrival_time,
+    latency_minutes,
+    status,
+    origin || ' → ' || destination AS route,
+    departure_hour,
+    departure_minute,
+    arrival_hour,
+    arrival_minute,
+    CASE
+        WHEN departure_hour BETWEEN 5 AND 11 THEN 'Morning'
+        WHEN departure_hour BETWEEN 12 AND 17 THEN 'Afternoon'
+        WHEN departure_hour BETWEEN 18 AND 21 THEN 'Evening'
+        ELSE 'Night'
+    END AS departure_time_of_day,
+    CASE
+        WHEN (arrival_hour * 60 + arrival_minute) >= (departure_hour * 60 + departure_minute)
+            THEN (arrival_hour * 60 + arrival_minute) - (departure_hour * 60 + departure_minute)
+        ELSE (arrival_hour * 60 + arrival_minute) + 1440 - (departure_hour * 60 + departure_minute)
+    END AS scheduled_duration_minutes
+FROM parsed
 """
 
 BLOCKED_SQL_TOKENS = (
@@ -195,9 +246,23 @@ FEW_SHOT_EXAMPLES: list[tuple[str, str]] = [
     ),
     (
         "Which routes have the highest average delay?",
-        "SELECT origin, destination, ROUND(AVG(latency_minutes), 2) AS avg_latency "
+        "SELECT route, ROUND(AVG(latency_minutes), 2) AS avg_latency, COUNT(*) AS flights "
         "FROM flights WHERE status IN ('Delayed', 'Cancelled') "
-        "GROUP BY origin, destination ORDER BY avg_latency DESC LIMIT 200",
+        "GROUP BY route ORDER BY avg_latency DESC LIMIT 200",
+    ),
+    (
+        "What is the average latency by departure time of day?",
+        "SELECT departure_time_of_day, ROUND(AVG(latency_minutes), 2) AS avg_latency, COUNT(*) AS flights "
+        "FROM flights GROUP BY departure_time_of_day "
+        "ORDER BY avg_latency DESC LIMIT 200",
+    ),
+    (
+        "Which routes have the highest cancellation rate?",
+        "SELECT route, "
+        "ROUND(100.0 * SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) / COUNT(*), 2) AS cancellation_rate_pct, "
+        "COUNT(*) AS flights "
+        "FROM flights GROUP BY route HAVING COUNT(*) >= 5 "
+        "ORDER BY cancellation_rate_pct DESC LIMIT 200",
     ),
     (
         "Show the top 10 most expensive disrupted flights.",
@@ -338,12 +403,17 @@ Columns:
 - airline
 - origin
 - destination
-- departure_time
-- arrival_time
+- departure_time (HH:MM string from CSV)
+- arrival_time (HH:MM string from CSV)
 - latency_minutes
 - status
+- route (derived: origin → destination)
+- departure_hour, departure_minute, arrival_hour, arrival_minute (parsed from times)
+- departure_time_of_day (Morning, Afternoon, Evening, Night)
+- scheduled_duration_minutes (scheduled block time, handles overnight flights)
 
 Status values: On-Time, Delayed, Cancelled
+Time-of-day values: Morning, Afternoon, Evening, Night
 
 Examples:
 {examples}
@@ -396,6 +466,22 @@ Rules:
                 "SELECT airline, COUNT(*) AS cancelled_flights "
                 "FROM flights WHERE status = 'Cancelled' "
                 "GROUP BY airline ORDER BY cancelled_flights DESC"
+            )
+
+        if "route" in q:
+            return (
+                "SELECT route, ROUND(AVG(latency_minutes), 2) AS avg_latency, COUNT(*) AS flights "
+                "FROM flights GROUP BY route ORDER BY avg_latency DESC LIMIT 25"
+            )
+
+        if any(k in q for k in ("time of day", "morning", "afternoon", "evening", "night")) or (
+            "hour" in q and any(k in q for k in ("delay", "delayed", "latency", "late"))
+        ):
+            return (
+                "SELECT departure_time_of_day, COUNT(*) AS delayed_flights, "
+                "ROUND(AVG(latency_minutes), 2) AS avg_latency "
+                "FROM flights WHERE status = 'Delayed' "
+                "GROUP BY departure_time_of_day ORDER BY delayed_flights DESC"
             )
 
         if any(k in q for k in ("delay", "delayed", "late")):
@@ -796,7 +882,7 @@ def explain_chat_result(question: str, df: pd.DataFrame) -> str:
 
 
 def validate_dataset(bi: ChatBI) -> None:
-    missing = REQUIRED_COLUMNS - set(bi.get_columns())
+    missing = (REQUIRED_COLUMNS | DERIVED_COLUMNS) - set(bi.get_columns())
     if missing:
         raise ValueError(f"Missing required columns: {', '.join(sorted(missing))}")
 
@@ -817,7 +903,7 @@ def write_dataframe_csv(df: pd.DataFrame, path: Path | str) -> Path:
 
 
 def get_distinct_values(bi: ChatBI, column: str) -> list[str]:
-    allowed = {"airline", "destination", "origin", "status"}
+    allowed = {"airline", "destination", "origin", "status", "route", "departure_time_of_day"}
     if column not in allowed:
         raise ValueError(f"Unsupported column for distinct lookup: {column}")
     return bi.dataframe(
