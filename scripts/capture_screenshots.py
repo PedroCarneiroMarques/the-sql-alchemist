@@ -79,7 +79,7 @@ def main() -> int:
             page.screenshot(path=str(OUTPUT_DIR / "dashboard-overview.png"))
 
             wars_heading = page.locator(
-                '[data-testid="stMainBlockContainer"] h3:has-text("Airline Wars")'
+                '[data-testid="stMainBlockContainer"] h3:has-text("Airline Comparison")'
             ).last
             wars_heading.scroll_into_view_if_needed()
             page.wait_for_timeout(1000)
@@ -94,7 +94,7 @@ def main() -> int:
                     };
                 }"""
             )
-            page.screenshot(path=str(OUTPUT_DIR / "airline-wars.png"), clip=box)
+            page.screenshot(path=str(OUTPUT_DIR / "airline-comparison.png"), clip=box)
 
             page.get_by_role("tab", name="Chat").click()
             page.wait_for_timeout(1000)

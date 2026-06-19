@@ -34,10 +34,10 @@ from src.core import (
     aggregate_cost_by_airline,
     aggregate_watchdog_summary,
     dataframe_to_csv_bytes,
-    explain_airline_wars,
+    explain_airline_comparison,
     explain_chat_result,
     explain_dashboard,
-    get_airline_wars,
+    get_airline_comparison,
     get_distinct_values,
     query_flight_kpis,
     recommend_chart,
@@ -49,7 +49,7 @@ from src.core import (
 )
 
 st.set_page_config(
-    page_title="Neural Flight Bridge",
+    page_title="The SQL Alchemist",
     page_icon="✈️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -331,7 +331,7 @@ with st.sidebar:
     )
 
     st.divider()
-    st.header(t("settings.airline_wars"))
+    st.header(t("settings.airline_comparison"))
 
     wars_airlines = selected_airlines if selected_airlines else all_airlines
 
@@ -436,7 +436,7 @@ with tab1:
                 fig2.update_layout(height=420, margin=dict(l=20, r=20, t=50, b=20))
                 st.plotly_chart(fig2, use_container_width=True)
 
-        st.subheader(t("visuals.cost_of_chaos"))
+        st.subheader(t("visuals.disruption_cost"))
 
         if cost_by_airline.empty:
             st.info(t("visuals.no_cost_impact"))
@@ -485,10 +485,10 @@ with tab1:
             fig4.update_layout(height=420, margin=dict(l=20, r=20, t=50, b=20))
             st.plotly_chart(fig4, use_container_width=True)
 
-        st.subheader(t("settings.airline_wars"))
+        st.subheader(t("settings.airline_comparison"))
 
         if airline_a and airline_b and selected_destination:
-            wars_df = get_airline_wars(
+            wars_df = get_airline_comparison(
                 bi=bi,
                 airline_a=airline_a,
                 airline_b=airline_b,
@@ -498,16 +498,16 @@ with tab1:
                 selected_airlines=selected_airlines or None,
             )
 
-            st.markdown(explain_airline_wars(wars_df, airline_a, airline_b, selected_destination))
+            st.markdown(explain_airline_comparison(wars_df, airline_a, airline_b, selected_destination))
 
             if wars_df.empty:
                 st.info(t("visuals.no_route_comparison"))
             else:
                 render_csv_download(
                     wars_df,
-                    label=t("export.download_wars_csv"),
-                    filename=f"airline_wars_{airline_a}_vs_{airline_b}_{selected_destination}.csv",
-                    key="export_airline_wars",
+                    label=t("export.download_comparison_csv"),
+                    filename=f"airline_comparison_{airline_a}_vs_{airline_b}_{selected_destination}.csv",
+                    key="export_airline_comparison",
                 )
                 st.dataframe(
                     wars_df,
@@ -534,7 +534,12 @@ with tab1:
                     y="value",
                     color="airline",
                     barmode="group",
-                    title=f"Airline Wars: {airline_a} vs {airline_b} ({selected_destination})",
+                    title=t(
+                        "visuals.comparison_chart_title",
+                        airline_a=airline_a,
+                        airline_b=airline_b,
+                        destination=selected_destination,
+                    ),
                 )
                 fig5.update_layout(height=450, margin=dict(l=20, r=20, t=50, b=20))
                 st.plotly_chart(fig5, use_container_width=True)

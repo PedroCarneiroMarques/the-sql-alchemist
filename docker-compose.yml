@@ -1,7 +1,7 @@
 services:
   ollama:
     image: ollama/ollama:latest
-    container_name: chab-ollama
+    container_name: sql-alchemist-ollama
     ports:
       - "11434:11434"
     volumes:
@@ -18,7 +18,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: chab-streamlit
+    container_name: sql-alchemist-app
     ports:
       - "8501:8501"
     environment:

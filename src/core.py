@@ -23,7 +23,7 @@ from config import get_config
 
 CFG = get_config()
 
-LOGGER_NAME = "chab_ai_engine"
+LOGGER_NAME = "sql_alchemist"
 LOGS_DIR = PROJECT_ROOT / "logs"
 LOG_LEVEL = CFG["LOG_LEVEL"]
 LOG_TO_FILE = CFG["LOG_TO_FILE"]
@@ -52,7 +52,7 @@ def configure_logging(
     if write_to_file:
         LOGS_DIR.mkdir(parents=True, exist_ok=True)
         file_handler = RotatingFileHandler(
-            LOGS_DIR / "chab_ai_engine.log",
+            LOGS_DIR / "sql_alchemist.log",
             maxBytes=1_000_000,
             backupCount=3,
         )
@@ -765,7 +765,7 @@ def add_watchdog_columns(
     return add_cost_columns(df, delay_cost_per_minute, cancellation_cost)
 
 
-def get_airline_wars(
+def get_airline_comparison(
     bi: ChatBI,
     airline_a: str,
     airline_b: str,
@@ -864,7 +864,7 @@ def explain_dashboard(filtered_df: pd.DataFrame, cost_by_airline: pd.DataFrame) 
     return " ".join(parts)
 
 
-def explain_airline_wars(wars_df: pd.DataFrame, airline_a: str, airline_b: str, destination: str) -> str:
+def explain_airline_comparison(wars_df: pd.DataFrame, airline_a: str, airline_b: str, destination: str) -> str:
     if wars_df is None or wars_df.empty or len(wars_df) < 2:
         return f"Not enough data to compare {airline_a} and {airline_b} on {destination}."
 

@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "chab-ai-engine"
+name = "sql-alchemist"
 version = "0.1.0"
 description = "Local BI assistant that turns natural language into DuckDB SQL"
 readme = "README.md"

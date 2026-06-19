@@ -13,9 +13,9 @@ The project uses local LLMs via Ollama to generate SQL, applies fallback logic w
 
 ## Screenshots
 
-| Dashboard | Natural-language chat | Airline Wars |
-|-----------|----------------------|--------------|
-| ![Dashboard overview](docs/images/dashboard-overview.png) | ![Chat analysis](docs/images/chat-analysis.png) | ![Airline Wars comparison](docs/images/airline-wars.png) |
+| Dashboard | Natural-language chat | Airline comparison |
+|-----------|----------------------|-------------------|
+| ![Dashboard overview](docs/images/dashboard-overview.png) | ![Chat analysis](docs/images/chat-analysis.png) | ![Airline comparison](docs/images/airline-comparison.png) |
 
 To refresh screenshots after UI changes:
 
@@ -27,14 +27,14 @@ python3 scripts/capture_screenshots.py
 ## Project Structure
 
 ```text
-chab_ai_engine/
+sql_alchemist/
 ├── data/
 │   └── flights.csv
 ├── docs/
 │   ├── images/
 │   │   ├── dashboard-overview.png
 │   │   ├── chat-analysis.png
-│   │   └── airline-wars.png
+│   │   └── airline-comparison.png
 │   └── DEPENDENCIES.md
 ├── notebooks/
 │   └── main.ipynb
@@ -71,8 +71,8 @@ chab_ai_engine/
 | Module | Responsibility |
 |--------|----------------|
 | `config.py` | Environment-based configuration (`OLLAMA_HOST`, `DATA_PATH`, model chain, costs) |
-| `src/core.py` | DuckDB loading, Ollama SQL generation, fallback logic, watchdog, Airline Wars, KPI helpers |
-| `src/main.py` | Terminal UI with Rich (`/dashboard`, `/wars`, `/suggest`, chat) |
+| `src/core.py` | DuckDB loading, Ollama SQL generation, fallback logic, watchdog, airline comparison, KPI helpers |
+| `src/main.py` | Terminal UI with Rich (`/dashboard`, `/compare`, `/suggest`, chat) |
 | `src/app.py` | Streamlit dashboards, charts, chat, CSV export |
 | `notebooks/main.ipynb` | Lightweight experimentation that imports from `src/core.py` |
 | `tests/test_core.py` | Automated tests for core behavior |
@@ -196,9 +196,9 @@ The app classifies records into operational quality groups:
 
 This is based on airline-relative latency behavior using configurable sensitivity (`relaxed`, `normal`, `strict`) with percentile and standard-deviation thresholds.
 
-### Airline Wars
+### Airline Comparison
 
-The "Airline Wars" view compares two airlines on a selected destination using:
+The airline comparison view compares two airlines on a selected destination using:
 
 - average latency
 - on-time rate
@@ -271,7 +271,7 @@ Configuration lives in `config.py` at the project root. Values can be overridden
 | `MODEL_PROFILE_ACCURATE` | larger models first | Model chain for the accurate profile |
 | `DEFAULT_WATCHDOG_SENSITIVITY` | `normal` | Watchdog level: `relaxed`, `normal`, or `strict` |
 | `LOG_LEVEL` | `INFO` | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `LOG_TO_FILE` | `true` | Write logs to `logs/chab_ai_engine.log` |
+| `LOG_TO_FILE` | `true` | Write logs to `logs/sql_alchemist.log` |
 | `UI_LOCALE` | `en` | UI language: `en` or `pt` (Streamlit sidebar can override per session) |
 | `APP_ENV` | `development` | `development` or `production` (stricter validation in production) |
 | `DEPLOYMENT_SECRETS_READY` | unset | Set to `true` in production after secrets are injected |
@@ -313,10 +313,10 @@ Set UI language with `UI_LOCALE=pt` or `python3 main.py --lang pt`.
 In the terminal:
 
 - ask questions in plain English
-- use `/filter`, `/profile`, `/dashboard`, `/wars`, `/export`, `/suggest`, `/models`, or `/help`
+- use `/filter`, `/profile`, `/dashboard`, `/compare`, `/export`, `/suggest`, `/models`, or `/help`
 - switch model profile: `/profile fast`, `/profile balanced`, `/profile accurate`
 - adjust watchdog sensitivity: `/watchdog relaxed`, `/watchdog normal`, `/watchdog strict`
-- quick wars: `/wars AirlineA AirlineB Destination`
+- quick comparison: `/compare AirlineA AirlineB Destination` (alias: `/wars`)
 - type `quit`, `exit`, or `q` to leave
 
 Exported CSV files are saved under `exports/` at the project root.
@@ -422,7 +422,7 @@ The Streamlit app currently includes:
 - global airline filters
 - route-level airline comparison
 - in-session chat history (metadata-only storage; results reloaded from SQL on demand)
-- CSV download buttons for filtered data, cost summaries, Airline Wars, and chat results
+- CSV download buttons for filtered data, cost summaries, airline comparison, and chat results
 
 ## Testing
 
@@ -432,7 +432,7 @@ Run the automated test suite from the project root:
 python3 -m pytest tests/ -v
 ```
 
-The tests cover SQL safety (including `sqlparse` guardrails), keyword fallback, few-shot prompts, watchdog logic, Airline Wars, explanations, and CSV export helpers. They do not require a running Ollama instance.
+The tests cover SQL safety (including `sqlparse` guardrails), keyword fallback, few-shot prompts, watchdog logic, airline comparison, explanations, and CSV export helpers. They do not require a running Ollama instance.
 
 CI runs automatically on GitHub Actions for Python 3.11 and 3.12 on every push and pull request to `main`.
 
@@ -441,7 +441,7 @@ CI runs automatically on GitHub Actions for Python 3.11 and 3.12 on every push a
 Structured logs are written to stderr and, by default, to:
 
 ```text
-logs/chab_ai_engine.log
+logs/sql_alchemist.log
 ```
 
 Useful events include dataset loading, Ollama model detection failures, rejected SQL, model attempts, query timings, and keyword fallback usage. Control verbosity with:
@@ -460,7 +460,7 @@ Screenshots live in `docs/images/` and are embedded at the top of this README.
 |------|-------------|
 | `dashboard-overview.png` | KPIs, charts, watchdog, and cost analytics |
 | `chat-analysis.png` | Natural-language query with SQL, table, and auto-chart |
-| `airline-wars.png` | Head-to-head airline comparison on a route |
+| `airline-comparison.png` | Head-to-head airline comparison on a route |
 
 Regenerate with `python3 scripts/capture_screenshots.py` (requires Playwright).
 

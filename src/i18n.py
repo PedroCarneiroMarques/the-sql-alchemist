@@ -8,7 +8,7 @@ _LOCALE = "en"
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "locale.en": {"en": "English", "pt": "English"},
     "locale.pt": {"en": "Portuguese", "pt": "Português"},
-    "app.title": {"en": "The Neural Bridge", "pt": "A Ponte Neural"},
+    "app.title": {"en": "The SQL Alchemist", "pt": "O SQL Alchemist"},
     "app.subtitle": {
         "en": "Natural language analytics powered by Streamlit, DuckDB and Ollama.",
         "pt": "Análise em linguagem natural com Streamlit, DuckDB e Ollama.",
@@ -41,7 +41,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "settings.sensitivity": {"en": "Sensitivity", "pt": "Sensibilidade"},
     "settings.global_filters": {"en": "Global Filters", "pt": "Filtros Globais"},
     "settings.airlines": {"en": "Airlines", "pt": "Companhias aéreas"},
-    "settings.airline_wars": {"en": "Airline Wars", "pt": "Guerra das Companhias"},
+    "settings.airline_comparison": {"en": "Airline Comparison", "pt": "Comparação de Companhias"},
     "settings.airline_a": {"en": "Airline A", "pt": "Companhia A"},
     "settings.airline_b": {"en": "Airline B", "pt": "Companhia B"},
     "settings.destination": {"en": "Destination", "pt": "Destino"},
@@ -63,7 +63,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "visuals.latency_timeline": {"en": "Latency Timeline", "pt": "Linha do Tempo de Latência"},
     "visuals.impacted_airlines": {"en": "Impacted Airlines", "pt": "Companhias Impactadas"},
     "visuals.no_delayed_flights": {"en": "No delayed flights in current selection.", "pt": "Sem voos atrasados na seleção atual."},
-    "visuals.cost_of_chaos": {"en": "Cost of Chaos", "pt": "Custo do Caos"},
+    "visuals.disruption_cost": {"en": "Disruption Cost", "pt": "Custo de Disrupção"},
+    "visuals.comparison_chart_title": {
+        "en": "Airline Comparison: {airline_a} vs {airline_b} ({destination})",
+        "pt": "Comparação de Companhias: {airline_a} vs {airline_b} ({destination})",
+    },
     "visuals.no_cost_impact": {"en": "No cost impact available for the current selection.", "pt": "Sem impacto de custo para a seleção atual."},
     "visuals.watchdog_distribution": {"en": "Watchdog Quality Distribution", "pt": "Distribuição de Qualidade do Watchdog"},
     "visuals.no_route_comparison": {
@@ -84,7 +88,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "chat.auto_chart": {"en": "Auto Chart", "pt": "Gráfico Automático"},
     "chat.download_csv": {"en": "Download result CSV", "pt": "Descarregar CSV do resultado"},
     "export.download_cost_csv": {"en": "Download cost by airline CSV", "pt": "Descarregar CSV de custo por companhia"},
-    "export.download_wars_csv": {"en": "Download Airline Wars CSV", "pt": "Descarregar CSV da Guerra das Companhias"},
+    "export.download_comparison_csv": {
+        "en": "Download airline comparison CSV",
+        "pt": "Descarregar CSV da comparação de companhias",
+    },
     "export.download_filtered_csv": {"en": "Download filtered data CSV", "pt": "Descarregar CSV dos dados filtrados"},
     "export.download_watchdog_csv": {"en": "Download watchdog summary CSV", "pt": "Descarregar CSV do resumo watchdog"},
     "profile.fast": {"en": "Fast — single lightweight model", "pt": "Rápido — um modelo leve"},
@@ -103,7 +110,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "  /profile     Show or set model profile (fast|balanced|accurate)\n"
             "  /watchdog    Show or set watchdog sensitivity\n"
             "  /dashboard   Show KPI summary + Watchdog\n"
-            "  /wars        Interactive Airline Wars comparison\n"
+            "  /compare     Interactive airline route comparison\n"
             "  /export      Save last result to exports/\n"
             "  /models      Show active model chain\n"
             "  /quit        Exit"
@@ -117,28 +124,28 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "  /profile     Ver ou definir perfil do modelo (fast|balanced|accurate)\n"
             "  /watchdog    Ver ou definir sensibilidade do watchdog\n"
             "  /dashboard   Mostrar KPIs + Watchdog\n"
-            "  /wars        Comparação interativa Guerra das Companhias\n"
+            "  /compare     Comparação interativa de companhias por rota\n"
             "  /export      Guardar último resultado em exports/\n"
             "  /models      Mostrar cadeia de modelos ativa\n"
             "  /quit        Sair"
         ),
     },
-    "cli.title": {"en": "Neural Flight Bridge CLI", "pt": "CLI da Ponte Neural"},
-    "cli.prompt": {"en": "The Alchemist", "pt": "O Alquimista"},
+    "cli.title": {"en": "The SQL Alchemist CLI", "pt": "CLI do SQL Alchemist"},
+    "cli.prompt": {"en": "SQL Alchemist", "pt": "SQL Alchemist"},
     "cli.session_closed": {"en": "Session closed.", "pt": "Sessão terminada."},
     "cli.help": {
         "en": (
-            "Commands: /suggest, /filter, /profile, /watchdog, /dashboard, /wars, /export, /models.\n"
+            "Commands: /suggest, /filter, /profile, /watchdog, /dashboard, /compare, /export, /models.\n"
             "Profiles: /profile fast | /profile balanced | /profile accurate\n"
             "Watchdog: /watchdog relaxed | /watchdog normal | /watchdog strict\n"
-            "Quick wars: /wars AirlineA AirlineB Destination\n"
+            "Quick comparison: /compare AirlineA AirlineB Destination\n"
             "Quick export: /export my_file.csv"
         ),
         "pt": (
-            "Comandos: /suggest, /filter, /profile, /watchdog, /dashboard, /wars, /export, /models.\n"
+            "Comandos: /suggest, /filter, /profile, /watchdog, /dashboard, /compare, /export, /models.\n"
             "Perfis: /profile fast | /profile balanced | /profile accurate\n"
             "Watchdog: /watchdog relaxed | /watchdog normal | /watchdog strict\n"
-            "Guerra rápida: /wars CompanhiaA CompanhiaB Destino\n"
+            "Comparação rápida: /compare CompanhiaA CompanhiaB Destino\n"
             "Exportação rápida: /export meu_ficheiro.csv"
         ),
     },
@@ -159,8 +166,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "cli.watchdog_set": {"en": "Watchdog sensitivity set to {value}.", "pt": "Sensibilidade watchdog definida para {value}."},
     "cli.nothing_to_export": {"en": "Nothing to export yet. Run a query or /dashboard first.", "pt": "Nada para exportar. Execute uma consulta ou /dashboard primeiro."},
     "cli.exported_rows": {"en": "Exported {rows:,} rows to", "pt": "Exportadas {rows:,} linhas para"},
-    "cli.not_enough_wars_data": {"en": "Not enough data for Airline Wars.", "pt": "Dados insuficientes para a Guerra das Companhias."},
-    "cli.wars_cancelled": {"en": "Airline Wars cancelled.", "pt": "Guerra das Companhias cancelada."},
+    "cli.not_enough_comparison_data": {
+        "en": "Not enough data for airline comparison.",
+        "pt": "Dados insuficientes para a comparação de companhias.",
+    },
+    "cli.comparison_cancelled": {
+        "en": "Airline comparison cancelled.",
+        "pt": "Comparação de companhias cancelada.",
+    },
     "cli.export_tip": {"en": "Tip: use /export to save this result as CSV.", "pt": "Dica: use /export para guardar este resultado em CSV."},
     "cli.export_dashboard_tip": {"en": "Tip: use /export to save the dashboard view as CSV.", "pt": "Dica: use /export para guardar a vista do dashboard em CSV."},
     "cli.no_rows": {"en": "No rows returned.", "pt": "Nenhuma linha devolvida."},
@@ -178,7 +191,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "cli.active_model_chain": {"en": "Active model chain", "pt": "Cadeia de modelos ativa"},
     "cli.sql_via": {"en": "SQL via {model}", "pt": "SQL via {model}"},
     "cli.query_result": {"en": "Query Result", "pt": "Resultado da Consulta"},
-    "cli.cost_of_chaos": {"en": "Cost of Chaos", "pt": "Custo do Caos"},
+    "cli.disruption_cost": {"en": "Disruption Cost", "pt": "Custo de Disrupção"},
     "cli.watchdog_preview": {"en": "Watchdog Preview", "pt": "Pré-visualização Watchdog"},
     "cli.data_not_found": {"en": "Data file not found: {path}", "pt": "Ficheiro de dados não encontrado: {path}"},
     "cli.startup_failed": {"en": "Startup failed: {error}", "pt": "Falha ao iniciar: {error}"},

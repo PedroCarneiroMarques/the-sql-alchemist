@@ -30,10 +30,10 @@ from src.core import (
     DEFAULT_WATCHDOG_SENSITIVITY,
     add_watchdog_columns,
     aggregate_cost_by_airline,
-    explain_airline_wars,
+    explain_airline_comparison,
     explain_chat_result,
     explain_dashboard,
-    get_airline_wars,
+    get_airline_comparison,
     get_distinct_values,
     query_flight_kpis,
     resolve_profile_chain,
@@ -230,7 +230,7 @@ def handle_export(session: CliSession, filename: str | None = None) -> None:
         console.print(f"[red]{exc}[/red]")
 
 
-def handle_wars(
+def handle_airline_comparison(
     bi: ChatBI,
     session: CliSession,
     all_airlines: list[str],
@@ -238,7 +238,7 @@ def handle_wars(
     args: list[str],
 ) -> None:
     if len(all_airlines) < 2 or not all_destinations:
-        console.print(f"[yellow]{t('cli.not_enough_wars_data')}[/yellow]")
+        console.print(f"[yellow]{t('cli.not_enough_comparison_data')}[/yellow]")
         return
 
     wars_pool = session.selected_airlines if session.selected_airlines else all_airlines
@@ -254,10 +254,10 @@ def handle_wars(
         destination = prompt_single_selection(all_destinations, t("settings.destination"), default_index=0)
 
     if not airline_a or not airline_b or not destination:
-        console.print(f"[yellow]{t('cli.wars_cancelled')}[/yellow]")
+        console.print(f"[yellow]{t('cli.comparison_cancelled')}[/yellow]")
         return
 
-    wars_df = get_airline_wars(
+    wars_df = get_airline_comparison(
         bi=bi,
         airline_a=airline_a,
         airline_b=airline_b,
@@ -267,9 +267,9 @@ def handle_wars(
         selected_airlines=session.selected_airlines or None,
     )
 
-    console.print(explain_airline_wars(wars_df, airline_a, airline_b, destination))
-    print_dataframe(wars_df, title=t("settings.airline_wars"), max_rows=10)
-    remember_export(session, wars_df, "airline_wars")
+    console.print(explain_airline_comparison(wars_df, airline_a, airline_b, destination))
+    print_dataframe(wars_df, title=t("settings.airline_comparison"), max_rows=10)
+    remember_export(session, wars_df, "airline_comparison")
     console.print(f"[dim]{t('cli.export_tip')}[/dim]")
 
 
@@ -285,7 +285,7 @@ def handle_dashboard(bi: ChatBI, session: CliSession) -> None:
 
     print_kpis(bi, session.selected_airlines, filtered_df)
     console.print(explain_dashboard(filtered_df, cost_by_airline))
-    print_dataframe(cost_by_airline, title=t("cli.cost_of_chaos"), max_rows=10)
+    print_dataframe(cost_by_airline, title=t("cli.disruption_cost"), max_rows=10)
 
     watchdog_cols = [
         "flight_id", "airline", "destination", "latency_minutes",
@@ -363,9 +363,9 @@ def run_cli(bi: ChatBI) -> None:
             handle_watchdog(session, args)
             continue
 
-        if user_input.startswith("/wars"):
+        if user_input.startswith("/compare") or user_input.startswith("/wars"):
             args = user_input.split()[1:]
-            handle_wars(bi, session, all_airlines, all_destinations, args)
+            handle_airline_comparison(bi, session, all_airlines, all_destinations, args)
             continue
 
         if user_input.startswith("/export"):

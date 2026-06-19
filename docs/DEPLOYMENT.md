@@ -39,9 +39,9 @@ python -m src.health --startup
 Create secret files outside the repo:
 
 ```bash
-mkdir -p /etc/chab-ai
-echo "https://ollama.internal.example.com" > /etc/chab-ai/ollama_host
-echo "your-api-key" > /etc/chab-ai/ollama_api_key
+mkdir -p /etc/sql-alchemist
+echo "https://ollama.internal.example.com" > /etc/sql-alchemist/ollama_host
+echo "your-api-key" > /etc/sql-alchemist/ollama_api_key
 ```
 
 Mount or inject them through your orchestration layer and map to environment variables at runtime.
@@ -63,7 +63,7 @@ env:
 ```yaml
 envFrom:
   - secretRef:
-      name: chab-ai-engine-secrets
+      name: sql-alchemist-secrets
 env:
   - name: APP_ENV
     value: production
@@ -98,7 +98,7 @@ Docker Compose runs `--startup` in the entrypoint and `--http` in the app health
 
 | Path | Purpose |
 |------|---------|
-| `logs/chab_ai_engine.log` | Application logs |
+| `logs/sql_alchemist.log` | Application logs |
 | `exports/` | CSV exports from CLI and Streamlit |
 
 Mount both as volumes in production (see `docker-compose.yml`).

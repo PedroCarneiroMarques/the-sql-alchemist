@@ -15,10 +15,10 @@ from src.core import (
     build_airline_filter,
     dataframe_to_csv_bytes,
     detect_entity_column,
-    explain_airline_wars,
+    explain_airline_comparison,
     explain_chat_result,
     explain_dashboard,
-    get_airline_wars,
+    get_airline_comparison,
     get_profile_chain,
     query_flight_kpis,
     recommend_chart,
@@ -179,24 +179,24 @@ class TestCostAndWatchdog:
         assert set(df["quality_flag"].unique()).issubset({"Reliable", "Review", "High Risk"})
 
 
-class TestAirlineWars:
-    def test_get_airline_wars_returns_two_airlines(self, bi: ChatBI) -> None:
+class TestAirlineComparison:
+    def test_get_airline_comparison_returns_two_airlines(self, bi: ChatBI) -> None:
         airlines = bi.dataframe(
             "SELECT DISTINCT airline FROM flights WHERE destination = 'JFK' LIMIT 2"
         )["airline"].tolist()
         if len(airlines) < 2:
             pytest.skip("Not enough airlines for JFK in dataset")
 
-        wars_df = get_airline_wars(bi, airlines[0], airlines[1], "JFK")
-        assert len(wars_df) == 2
-        assert "on_time_rate_pct" in wars_df.columns
+        comparison_df = get_airline_comparison(bi, airlines[0], airlines[1], "JFK")
+        assert len(comparison_df) == 2
+        assert "on_time_rate_pct" in comparison_df.columns
 
-    def test_explain_airline_wars_uses_distinct_winner_and_loser(self, bi: ChatBI) -> None:
-        wars_df = get_airline_wars(bi, "Lufthansa", "easyJet", "JFK")
-        if len(wars_df) < 2:
+    def test_explain_airline_comparison_uses_distinct_winner_and_loser(self, bi: ChatBI) -> None:
+        comparison_df = get_airline_comparison(bi, "Lufthansa", "easyJet", "JFK")
+        if len(comparison_df) < 2:
             pytest.skip("Insufficient route data")
 
-        explanation = explain_airline_wars(wars_df, "Lufthansa", "easyJet", "JFK")
+        explanation = explain_airline_comparison(comparison_df, "Lufthansa", "easyJet", "JFK")
         assert "leads on JFK" in explanation
         assert "vs" in explanation
 

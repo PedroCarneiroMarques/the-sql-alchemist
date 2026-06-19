@@ -16,11 +16,11 @@ class TestI18n:
     def test_configure_locale_switches_strings(self) -> None:
         configure_locale("en")
         assert get_locale() == "en"
-        assert t("app.title") == "The Neural Bridge"
+        assert t("app.title") == "The SQL Alchemist"
 
         configure_locale("pt")
         assert get_locale() == "pt"
-        assert t("app.title") == "A Ponte Neural"
+        assert t("app.title") == "O SQL Alchemist"
 
     def test_translation_formatting(self) -> None:
         configure_locale("en")
