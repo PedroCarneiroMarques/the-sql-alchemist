@@ -24,6 +24,13 @@ DATA_PATH = Path(CFG["DATA_PATH"])
 OLLAMA_HOST = CFG["OLLAMA_HOST"]
 OLLAMA_TIMEOUT = CFG["OLLAMA_TIMEOUT"]
 DEFAULT_MODEL_CHAIN = CFG["DEFAULT_MODEL_CHAIN"]
+DEFAULT_MODEL_PROFILE = CFG["DEFAULT_MODEL_PROFILE"]
+MODEL_PROFILES: dict[str, list[str]] = CFG["MODEL_PROFILES"]
+MODEL_PROFILE_LABELS = {
+    "fast": "Fast — smallest model, quickest responses",
+    "balanced": "Balanced — default fallback chain",
+    "accurate": "Accurate — larger models first",
+}
 DEFAULT_DELAY_COST_PER_MINUTE = CFG["DEFAULT_DELAY_COST_PER_MINUTE"]
 DEFAULT_CANCELLATION_COST = CFG["DEFAULT_CANCELLATION_COST"]
 
@@ -759,6 +766,22 @@ def resolve_model_chain(
     default_chain = default_chain or DEFAULT_MODEL_CHAIN
     selected = [m for m in default_chain if m in available_models]
     return selected or default_chain
+
+
+def normalize_model_profile(profile: str) -> str:
+    key = profile.lower().strip()
+    if key not in MODEL_PROFILES:
+        valid = ", ".join(MODEL_PROFILES)
+        raise ValueError(f"Unknown model profile '{profile}'. Choose: {valid}")
+    return key
+
+
+def get_profile_chain(profile: str) -> list[str]:
+    return list(MODEL_PROFILES[normalize_model_profile(profile)])
+
+
+def resolve_profile_chain(profile: str, available_models: list[str]) -> list[str]:
+    return resolve_model_chain(available_models, get_profile_chain(profile))
 
 
 def default_airline_selection(all_airlines: list[str], limit: int = 3) -> list[str]:

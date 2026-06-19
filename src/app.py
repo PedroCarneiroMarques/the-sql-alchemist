@@ -18,6 +18,9 @@ from src.core import (
     DEFAULT_CANCELLATION_COST,
     DEFAULT_DELAY_COST_PER_MINUTE,
     DEFAULT_MODEL_CHAIN,
+    DEFAULT_MODEL_PROFILE,
+    MODEL_PROFILE_LABELS,
+    MODEL_PROFILES,
     SUGGESTED_QUESTIONS,
     add_watchdog_columns,
     aggregate_cost_by_airline,
@@ -30,7 +33,7 @@ from src.core import (
     get_distinct_values,
     query_flight_kpis,
     recommend_chart,
-    resolve_model_chain,
+    resolve_profile_chain,
     default_airline_selection,
     sum_cost_columns,
     validate_dataset,
@@ -150,7 +153,13 @@ init_session_state()
 st.title("🧠 The Neural Bridge")
 st.caption("Natural language analytics powered by Streamlit, DuckDB and Ollama.")
 
-default_chain = resolve_model_chain(bi.available_models())
+available_models = bi.available_models() or DEFAULT_MODEL_CHAIN
+profile_options = list(MODEL_PROFILES.keys())
+default_profile_index = (
+    profile_options.index(DEFAULT_MODEL_PROFILE)
+    if DEFAULT_MODEL_PROFILE in profile_options
+    else profile_options.index("balanced")
+)
 
 all_airlines = get_distinct_values(bi, "airline")
 all_destinations = get_distinct_values(bi, "destination")
@@ -158,17 +167,31 @@ all_destinations = get_distinct_values(bi, "destination")
 with st.sidebar:
     st.header("Settings")
 
-    st.markdown("**Model fallback chain**")
-    selected_chain = st.multiselect(
-        "Execution order",
-        options=bi.available_models() or DEFAULT_MODEL_CHAIN,
-        default=default_chain,
+    st.markdown("**Model profile**")
+    model_profile = st.selectbox(
+        "Execution strategy",
+        options=profile_options,
+        index=default_profile_index,
+        format_func=lambda key: MODEL_PROFILE_LABELS.get(key, key),
     )
 
-    if not selected_chain:
-        selected_chain = default_chain
+    use_custom_chain = st.checkbox("Custom model chain", value=False)
 
-    st.caption("The app will try the fastest/smallest model first, then escalate.")
+    if use_custom_chain:
+        selected_chain = st.multiselect(
+            "Execution order",
+            options=available_models,
+            default=resolve_profile_chain(model_profile, available_models),
+        )
+        if not selected_chain:
+            selected_chain = resolve_profile_chain(model_profile, available_models)
+    else:
+        selected_chain = resolve_profile_chain(model_profile, available_models)
+
+    st.caption(
+        "The app tries models in order, then falls back to keyword SQL if needed.\n\n"
+        f"Active chain: {', '.join(selected_chain)}"
+    )
 
     st.subheader("Business Impact")
 

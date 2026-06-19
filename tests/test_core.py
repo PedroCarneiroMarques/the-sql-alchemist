@@ -18,8 +18,11 @@ from src.core import (
     explain_chat_result,
     explain_dashboard,
     get_airline_wars,
+    get_profile_chain,
     query_flight_kpis,
     recommend_chart,
+    resolve_profile_chain,
+    normalize_model_profile,
     resolve_model_chain,
     safe_get,
     safe_sorted_first_record,
@@ -287,3 +290,24 @@ class TestChartRecommendation:
 
     def test_recommend_none_for_empty(self) -> None:
         assert recommend_chart(pd.DataFrame()).kind == "none"
+
+
+class TestModelProfiles:
+    def test_get_profile_chain_fast(self) -> None:
+        chain = get_profile_chain("fast")
+        assert chain
+        assert chain[0] == "mistral:7b"
+
+    def test_normalize_invalid_profile(self) -> None:
+        with pytest.raises(ValueError, match="Unknown model profile"):
+            normalize_model_profile("turbo")
+
+    def test_resolve_profile_chain_filters_available(self) -> None:
+        chain = resolve_profile_chain("fast", ["mistral:7b", "other-model"])
+        assert chain == ["mistral:7b"]
+
+    def test_balanced_profile_uses_default_chain(self) -> None:
+        from src.core import DEFAULT_MODEL_CHAIN
+
+        chain = get_profile_chain("balanced")
+        assert chain == DEFAULT_MODEL_CHAIN

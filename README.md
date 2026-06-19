@@ -217,7 +217,10 @@ Configuration lives in `config.py` at the project root. Values can be overridden
 | `DATA_PATH` | `data/flights.csv` | Path to the flights dataset |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint |
 | `OLLAMA_TIMEOUT` | `180` | Request timeout in seconds |
-| `DEFAULT_MODEL_CHAIN` | comma-separated model list | Fallback order for SQL generation |
+| `DEFAULT_MODEL_CHAIN` | comma-separated model list | Balanced profile fallback order |
+| `DEFAULT_MODEL_PROFILE` | `balanced` | Default profile: `fast`, `balanced`, or `accurate` |
+| `MODEL_PROFILE_FAST` | `mistral:7b` | Model chain for the fast profile |
+| `MODEL_PROFILE_ACCURATE` | larger models first | Model chain for the accurate profile |
 | `DEFAULT_DELAY_COST_PER_MINUTE` | `50` | Delay cost per minute (€) |
 | `DEFAULT_CANCELLATION_COST` | `200` | Fixed cancellation cost (€) |
 
@@ -253,7 +256,8 @@ python3 main.py
 In the terminal:
 
 - ask questions in plain English
-- use `/filter`, `/dashboard`, `/wars`, `/export`, `/suggest`, `/models`, or `/help`
+- use `/filter`, `/profile`, `/dashboard`, `/wars`, `/export`, `/suggest`, `/models`, or `/help`
+- switch model profile: `/profile fast`, `/profile balanced`, `/profile accurate`
 - quick wars: `/wars AirlineA AirlineB Destination`
 - type `quit`, `exit`, or `q` to leave
 
@@ -280,6 +284,7 @@ http://localhost:8501
 The Streamlit app currently includes:
 
 - installed-model detection from local Ollama
+- model profiles: fast, balanced, accurate (with optional custom chain)
 - fallback model execution chain
 - generated SQL preview
 - results table rendering

@@ -21,7 +21,8 @@ from src.core import (
     DATA_PATH,
     DEFAULT_CANCELLATION_COST,
     DEFAULT_DELAY_COST_PER_MINUTE,
-    DEFAULT_MODEL_CHAIN,
+    DEFAULT_MODEL_PROFILE,
+    MODEL_PROFILES,
     SUGGESTED_QUESTIONS,
     add_watchdog_columns,
     aggregate_cost_by_airline,
@@ -31,8 +32,9 @@ from src.core import (
     get_airline_wars,
     get_distinct_values,
     query_flight_kpis,
-    resolve_model_chain,
+    resolve_profile_chain,
     default_airline_selection,
+    normalize_model_profile,
     validate_dataset,
     write_dataframe_csv,
 )
@@ -45,6 +47,7 @@ EXPORTS_DIR = PROJECT_ROOT / "exports"
 class CliSession:
     selected_airlines: list[str]
     selected_chain: list[str]
+    active_profile: str = DEFAULT_MODEL_PROFILE
     last_export_df: pd.DataFrame | None = None
     last_export_name: str = "query_result"
 
@@ -162,6 +165,30 @@ def handle_filter(session: CliSession, all_airlines: list[str]) -> None:
         console.print("[green]Filter cleared:[/green] all airlines")
 
 
+def handle_profile(session: CliSession, available_models: list[str], args: list[str]) -> None:
+    if not args:
+        console.print(f"[bold]Active profile:[/bold] {session.active_profile}")
+        console.print(f"[bold]Active chain:[/bold] {', '.join(session.selected_chain)}")
+        console.print("[bold]Available profiles:[/bold]")
+        for name, chain in MODEL_PROFILES.items():
+            marker = " (active)" if name == session.active_profile else ""
+            console.print(f"  {name}{marker}: {', '.join(chain)}")
+        console.print("Use /profile fast|balanced|accurate to switch.")
+        return
+
+    profile = args[0].lower()
+    try:
+        session.active_profile = normalize_model_profile(profile)
+        session.selected_chain = resolve_profile_chain(session.active_profile, available_models)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        return
+
+    console.print(
+        f"[green]Profile set to {profile}:[/green] {', '.join(session.selected_chain)}"
+    )
+
+
 def handle_export(session: CliSession, filename: str | None = None) -> None:
     if session.last_export_df is None or session.last_export_df.empty:
         console.print("[yellow]Nothing to export yet. Run a query or /dashboard first.[/yellow]")
@@ -255,7 +282,8 @@ def run_cli(bi: ChatBI) -> None:
 
     session = CliSession(
         selected_airlines=default_airline_selection(all_airlines),
-        selected_chain=resolve_model_chain(bi.available_models()),
+        selected_chain=resolve_profile_chain(DEFAULT_MODEL_PROFILE, bi.available_models()),
+        active_profile=DEFAULT_MODEL_PROFILE,
     )
 
     console.print(Panel.fit(
@@ -264,6 +292,7 @@ def run_cli(bi: ChatBI) -> None:
         "  /help        Show commands\n"
         "  /suggest     Show suggested questions\n"
         "  /filter      Choose airlines for dashboard and wars\n"
+        "  /profile     Show or set model profile (fast|balanced|accurate)\n"
         "  /dashboard   Show KPI summary + Watchdog\n"
         "  /wars        Interactive Airline Wars comparison\n"
         "  /export      Save last result to exports/\n"
@@ -273,7 +302,8 @@ def run_cli(bi: ChatBI) -> None:
         border_style="green",
     ))
     console.print(
-        f"[dim]Active airline filter:[/dim] "
+        f"[dim]Active profile:[/dim] {session.active_profile} | "
+        f"[dim]Airline filter:[/dim] "
         f"{', '.join(session.selected_airlines) if session.selected_airlines else 'all airlines'}"
     )
 
@@ -286,7 +316,8 @@ def run_cli(bi: ChatBI) -> None:
 
         if user_input == "/help":
             console.print(
-                "Commands: /suggest, /filter, /dashboard, /wars, /export, /models.\n"
+                "Commands: /suggest, /filter, /profile, /dashboard, /wars, /export, /models.\n"
+                "Profiles: /profile fast | /profile balanced | /profile accurate\n"
                 "Quick wars: /wars AirlineA AirlineB Destination\n"
                 "Quick export: /export my_file.csv"
             )
@@ -298,6 +329,7 @@ def run_cli(bi: ChatBI) -> None:
             continue
 
         if user_input == "/models":
+            console.print(f"Active profile: {session.active_profile}")
             console.print("Active model chain:")
             for model in session.selected_chain:
                 console.print(f"- {model}")
@@ -309,6 +341,11 @@ def run_cli(bi: ChatBI) -> None:
 
         if user_input == "/dashboard":
             handle_dashboard(bi, session)
+            continue
+
+        if user_input.startswith("/profile"):
+            args = user_input.split()[1:]
+            handle_profile(session, bi.available_models(), args)
             continue
 
         if user_input.startswith("/wars"):
