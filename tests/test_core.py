@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -26,6 +27,8 @@ from src.core import (
     resolve_model_chain,
     normalize_watchdog_sensitivity,
     get_watchdog_settings,
+    LOGGER_NAME,
+    configure_logging,
     safe_get,
     safe_sorted_first_record,
     safe_sorted_top_n_records,
@@ -332,3 +335,16 @@ class TestWatchdogSensitivity:
         relaxed_flagged = int(relaxed["quality_flag"].isin(["Review", "High Risk"]).sum())
         strict_flagged = int(strict["quality_flag"].isin(["Review", "High Risk"]).sum())
         assert strict_flagged >= relaxed_flagged
+
+
+class TestLogging:
+    def test_configure_logging_is_idempotent(self) -> None:
+        first = configure_logging()
+        second = configure_logging()
+        assert first is second
+
+    def test_ask_with_fallback_logs_keyword_fallback(self, bi: ChatBI, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
+            bi.ask_with_fallback("how many flights by status", ["nonexistent-model"])
+        messages = " ".join(record.message for record in caplog.records).lower()
+        assert "keyword fallback" in messages

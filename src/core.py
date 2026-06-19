@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import re
 import sys
+import time
 from dataclasses import dataclass
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -19,6 +22,49 @@ if str(PROJECT_ROOT) not in sys.path:
 from config import get_config
 
 CFG = get_config()
+
+LOGGER_NAME = "chab_ai_engine"
+LOGS_DIR = PROJECT_ROOT / "logs"
+LOG_LEVEL = CFG["LOG_LEVEL"]
+LOG_TO_FILE = CFG["LOG_TO_FILE"]
+
+
+def configure_logging(
+    log_level: str | None = None,
+    log_to_file: bool | None = None,
+) -> logging.Logger:
+    logger = logging.getLogger(LOGGER_NAME)
+    if logger.handlers:
+        return logger
+
+    level_name = (log_level or LOG_LEVEL).upper()
+    level = getattr(logging, level_name, logging.INFO)
+    write_to_file = LOG_TO_FILE if log_to_file is None else log_to_file
+
+    logger.setLevel(level)
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(level)
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
+
+    if write_to_file:
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            LOGS_DIR / "chab_ai_engine.log",
+            maxBytes=1_000_000,
+            backupCount=3,
+        )
+        file_handler.setLevel(level)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+    logger.propagate = False
+    return logger
+
+
+logger = configure_logging()
 
 DATA_PATH = Path(CFG["DATA_PATH"])
 OLLAMA_HOST = CFG["OLLAMA_HOST"]
@@ -228,6 +274,7 @@ class ChatBI:
         self.client = Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT)
         self.db = duckdb.connect(database=":memory:")
         self._load_table()
+        logger.info("Loaded dataset from %s (%d rows)", csv_path, self.scalar("SELECT COUNT(*) FROM flights") or 0)
 
     def _load_table(self) -> None:
         self.db.execute(FLIGHTS_LOAD_SQL, [self.csv_path])
@@ -248,12 +295,15 @@ class ChatBI:
         try:
             response = self.client.list()
             models = response.get("models", [])
-            return [
+            available = [
                 m.get("model") or m.get("name")
                 for m in models
                 if m.get("model") or m.get("name")
             ]
-        except Exception:
+            logger.debug("Detected %d local Ollama models", len(available))
+            return available
+        except Exception as exc:
+            logger.warning("Failed to list Ollama models at %s: %s", OLLAMA_HOST, exc)
             return []
 
     def _sanitize_sql(self, raw_sql: str) -> str:
@@ -311,6 +361,7 @@ Rules:
         """.strip()
 
     def _try_model_sql(self, model_name: str, question: str) -> tuple[bool, str, str]:
+        logger.debug("Trying model %s", model_name)
         try:
             response = self.client.chat(
                 model=model_name,
@@ -319,12 +370,16 @@ Rules:
             raw_sql = response["message"]["content"]
             sql = self._sanitize_sql(raw_sql)
 
-            if not self._is_safe_query(sql):
+            is_safe, reason = validate_sql_query(sql)
+            if not is_safe:
+                logger.warning("Rejected SQL from %s: %s | SQL=%s", model_name, reason, sql[:200])
                 return False, "", f"{model_name}: generated unsafe or invalid SQL"
 
             sql = self._ensure_limit(sql)
+            logger.debug("Accepted SQL from %s: %s", model_name, sql[:200])
             return True, sql, ""
         except Exception as exc:
+            logger.warning("Model request failed for %s: %s", model_name, exc)
             return False, "", f"{model_name}: {exc}"
 
     def _keyword_fallback_sql(self, question: str) -> str:
@@ -368,12 +423,21 @@ Rules:
 
     def ask_with_fallback(self, question: str, model_chain: list[str]) -> dict[str, Any]:
         errors: list[str] = []
+        logger.info("Processing question with %d models in chain", len(model_chain))
 
         for model_name in model_chain:
             success, sql, err = self._try_model_sql(model_name, question)
             if success:
                 try:
+                    start = time.perf_counter()
                     df = self.dataframe(sql)
+                    elapsed_ms = (time.perf_counter() - start) * 1000
+                    logger.info(
+                        "Query succeeded via %s in %.1f ms (%d rows)",
+                        model_name,
+                        elapsed_ms,
+                        len(df),
+                    )
                     return {
                         "success": True,
                         "model": model_name,
@@ -383,14 +447,24 @@ Rules:
                         "attempt_errors": errors,
                     }
                 except Exception as exc:
+                    logger.warning(
+                        "SQL execution failed for %s: %s | SQL=%s",
+                        model_name,
+                        exc,
+                        sql[:200],
+                    )
                     errors.append(f"{model_name}: SQL execution failed - {exc}")
             else:
                 errors.append(err)
 
         fallback_sql = self._keyword_fallback_sql(question)
+        logger.info("Using keyword fallback SQL")
 
         try:
+            start = time.perf_counter()
             df = self.dataframe(fallback_sql)
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            logger.info("Keyword fallback succeeded in %.1f ms (%d rows)", elapsed_ms, len(df))
             return {
                 "success": True,
                 "model": "keyword_fallback",
@@ -400,6 +474,7 @@ Rules:
                 "attempt_errors": errors,
             }
         except Exception as exc:
+            logger.error("Keyword fallback failed: %s | SQL=%s", exc, fallback_sql[:200])
             errors.append(f"fallback: {exc}")
             return {
                 "success": False,

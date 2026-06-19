@@ -45,6 +45,12 @@ def get_config() -> dict[str, Any]:
     if default_watchdog_sensitivity not in {"relaxed", "normal", "strict"}:
         default_watchdog_sensitivity = "normal"
 
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper().strip()
+    if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+        log_level = "INFO"
+
+    log_to_file = os.getenv("LOG_TO_FILE", "true").lower().strip() in {"1", "true", "yes", "on"}
+
     return {
         "OLLAMA_HOST": ollama_host,
         "OLLAMA_TIMEOUT": ollama_timeout,
@@ -55,4 +61,6 @@ def get_config() -> dict[str, Any]:
         "MODEL_PROFILES": model_profiles,
         "DEFAULT_MODEL_PROFILE": default_model_profile,
         "DEFAULT_WATCHDOG_SENSITIVITY": default_watchdog_sensitivity,
+        "LOG_LEVEL": log_level,
+        "LOG_TO_FILE": log_to_file,
     }

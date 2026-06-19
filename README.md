@@ -222,6 +222,8 @@ Configuration lives in `config.py` at the project root. Values can be overridden
 | `MODEL_PROFILE_FAST` | `mistral:7b` | Model chain for the fast profile |
 | `MODEL_PROFILE_ACCURATE` | larger models first | Model chain for the accurate profile |
 | `DEFAULT_WATCHDOG_SENSITIVITY` | `normal` | Watchdog level: `relaxed`, `normal`, or `strict` |
+| `LOG_LEVEL` | `INFO` | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `LOG_TO_FILE` | `true` | Write logs to `logs/chab_ai_engine.log` |
 | `DEFAULT_DELAY_COST_PER_MINUTE` | `50` | Delay cost per minute (€) |
 | `DEFAULT_CANCELLATION_COST` | `200` | Fixed cancellation cost (€) |
 
@@ -309,6 +311,21 @@ python3 -m pytest tests/ -v
 The tests cover SQL safety (including `sqlparse` guardrails), keyword fallback, few-shot prompts, watchdog logic, Airline Wars, explanations, and CSV export helpers. They do not require a running Ollama instance.
 
 CI runs automatically on GitHub Actions for Python 3.11 and 3.12 on every push and pull request to `main`.
+
+## Logging
+
+Structured logs are written to stderr and, by default, to:
+
+```text
+logs/chab_ai_engine.log
+```
+
+Useful events include dataset loading, Ollama model detection failures, rejected SQL, model attempts, query timings, and keyword fallback usage. Control verbosity with:
+
+```bash
+export LOG_LEVEL=DEBUG
+export LOG_TO_FILE=false
+```
 
 ## Screenshots and Images
 
