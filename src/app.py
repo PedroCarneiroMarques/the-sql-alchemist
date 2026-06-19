@@ -18,15 +18,21 @@ from src.core import (
     DEFAULT_CANCELLATION_COST,
     DEFAULT_DELAY_COST_PER_MINUTE,
     DEFAULT_MODEL_CHAIN,
-    REQUIRED_COLUMNS,
     SUGGESTED_QUESTIONS,
     add_watchdog_columns,
-    build_airline_filter,
+    aggregate_cost_by_airline,
+    aggregate_watchdog_summary,
     dataframe_to_csv_bytes,
     explain_airline_wars,
     explain_chat_result,
     explain_dashboard,
     get_airline_wars,
+    get_distinct_values,
+    query_flight_kpis,
+    resolve_model_chain,
+    default_airline_selection,
+    sum_cost_columns,
+    validate_dataset,
 )
 
 st.set_page_config(
@@ -42,7 +48,7 @@ def load_bi(csv_path: str) -> ChatBI | None:
     path = Path(csv_path)
     if not path.exists():
         return None
-    return ChatBI(str(path), DEFAULT_MODEL_CHAIN)
+    return ChatBI(str(path))
 
 
 def init_session_state() -> None:
@@ -111,9 +117,10 @@ if bi is None:
     st.error(f"❌ Ficheiro não encontrado: {DATA_PATH}")
     st.stop()
 
-missing_cols = REQUIRED_COLUMNS - set(bi.get_columns())
-if missing_cols:
-    st.error(f"❌ Missing required columns: {', '.join(sorted(missing_cols))}")
+try:
+    validate_dataset(bi)
+except ValueError as exc:
+    st.error(f"❌ {exc}")
     st.stop()
 
 init_session_state()
@@ -121,16 +128,10 @@ init_session_state()
 st.title("🧠 The Neural Bridge")
 st.caption("Natural language analytics powered by Streamlit, DuckDB and Ollama.")
 
-available_models = bi.available_models()
-default_chain = [m for m in DEFAULT_MODEL_CHAIN if m in available_models] or DEFAULT_MODEL_CHAIN
+default_chain = resolve_model_chain(bi.available_models())
 
-all_airlines = bi.dataframe(
-    "SELECT DISTINCT airline FROM flights WHERE airline IS NOT NULL ORDER BY airline"
-)["airline"].tolist()
-
-all_destinations = bi.dataframe(
-    "SELECT DISTINCT destination FROM flights WHERE destination IS NOT NULL ORDER BY destination"
-)["destination"].tolist()
+all_airlines = get_distinct_values(bi, "airline")
+all_destinations = get_distinct_values(bi, "destination")
 
 with st.sidebar:
     st.header("Settings")
@@ -138,7 +139,7 @@ with st.sidebar:
     st.markdown("**Model fallback chain**")
     selected_chain = st.multiselect(
         "Execution order",
-        options=available_models or DEFAULT_MODEL_CHAIN,
+        options=bi.available_models() or DEFAULT_MODEL_CHAIN,
         default=default_chain,
     )
 
@@ -166,7 +167,7 @@ with st.sidebar:
     st.divider()
     st.header("Global Filters")
 
-    default_airlines = all_airlines[:3] if len(all_airlines) >= 3 else all_airlines
+    default_airlines = default_airline_selection(all_airlines)
 
     selected_airlines = st.multiselect(
         "Airlines",
@@ -194,19 +195,12 @@ with st.sidebar:
         st.session_state.chat_history = []
         st.rerun()
 
-filter_sql, filter_params = build_airline_filter(selected_airlines)
-
 tab1, tab2 = st.tabs(["📊 Visuals", "🗣️ Chat"])
 
 with tab1:
     st.subheader("Real-Time Analytics")
 
-    total_flights = bi.scalar(f"SELECT COUNT(*) FROM flights {filter_sql}", filter_params)
-    avg_latency = bi.scalar(f"SELECT AVG(latency_minutes) FROM flights {filter_sql}", filter_params)
-    delayed_count = bi.scalar(
-        f"SELECT COUNT(*) FROM flights {filter_sql} {'AND' if filter_sql else 'WHERE'} status = ?",
-        filter_params + ["Delayed"],
-    )
+    kpis = query_flight_kpis(bi, selected_airlines)
 
     filtered_df = add_watchdog_columns(
         bi,
@@ -216,18 +210,16 @@ with tab1:
     )
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Total Flights", f"{int(total_flights or 0):,}")
-    c2.metric("Avg Latency", f"{float(avg_latency or 0):.1f} min")
-    c3.metric("Delayed Flights", f"{int(delayed_count or 0):,}")
+    c1.metric("Total Flights", f"{int(kpis['total_flights'] or 0):,}")
+    c2.metric("Avg Latency", f"{float(kpis['avg_latency'] or 0):.1f} min")
+    c3.metric("Delayed Flights", f"{int(kpis['delayed_count'] or 0):,}")
 
-    total_cost = float(pd.to_numeric(filtered_df["total_cost_eur"], errors="coerce").fillna(0).sum()) if not filtered_df.empty else 0
-    delay_cost_total = float(pd.to_numeric(filtered_df["delay_cost_eur"], errors="coerce").fillna(0).sum()) if not filtered_df.empty else 0
-    cancellation_cost_total = float(pd.to_numeric(filtered_df["cancellation_cost_eur"], errors="coerce").fillna(0).sum()) if not filtered_df.empty else 0
+    costs = sum_cost_columns(filtered_df)
 
     c4, c5, c6 = st.columns(3)
-    c4.metric("Total Cost (€)", f"{total_cost:,.0f}")
-    c5.metric("Delay Cost (€)", f"{delay_cost_total:,.0f}")
-    c6.metric("Cancellation Cost (€)", f"{cancellation_cost_total:,.0f}")
+    c4.metric("Total Cost (€)", f"{costs['total_cost']:,.0f}")
+    c5.metric("Delay Cost (€)", f"{costs['delay_cost']:,.0f}")
+    c6.metric("Cancellation Cost (€)", f"{costs['cancellation_cost']:,.0f}")
 
     reliable_count = int((filtered_df["quality_flag"] == "Reliable").sum()) if not filtered_df.empty else 0
     review_count = int((filtered_df["quality_flag"] == "Review").sum()) if not filtered_df.empty else 0
@@ -238,24 +230,8 @@ with tab1:
     c8.metric("Review Rows", f"{review_count:,}")
     c9.metric("High Risk Rows", f"{high_risk_count:,}")
 
-    cost_by_airline = (
-        filtered_df.groupby("airline", as_index=False)
-        .agg(
-            total_cost_eur=("total_cost_eur", "sum"),
-            delay_cost_eur=("delay_cost_eur", "sum"),
-            cancellation_cost_eur=("cancellation_cost_eur", "sum"),
-        )
-        .sort_values("total_cost_eur", ascending=False)
-    ) if not filtered_df.empty else pd.DataFrame()
-
-    watchdog_summary = (
-        filtered_df.groupby("quality_flag", as_index=False)
-        .agg(
-            rows=("flight_id", "count"),
-            avg_latency=("latency_minutes", "mean"),
-            total_cost_eur=("total_cost_eur", "sum"),
-        )
-    ) if not filtered_df.empty else pd.DataFrame()
+    cost_by_airline = aggregate_cost_by_airline(filtered_df)
+    watchdog_summary = aggregate_watchdog_summary(filtered_df)
 
     st.subheader("Result Explanation")
     st.markdown(explain_dashboard(filtered_df, cost_by_airline))

@@ -7,6 +7,8 @@ from src.core import (
     ChatBI,
     add_cost_columns,
     add_watchdog_columns,
+    aggregate_cost_by_airline,
+    aggregate_watchdog_summary,
     build_airline_filter,
     dataframe_to_csv_bytes,
     detect_entity_column,
@@ -14,9 +16,12 @@ from src.core import (
     explain_chat_result,
     explain_dashboard,
     get_airline_wars,
+    query_flight_kpis,
+    resolve_model_chain,
     safe_get,
     safe_sorted_first_record,
     safe_sorted_top_n_records,
+    sum_cost_columns,
     validate_dataset,
 )
 
@@ -183,3 +188,30 @@ class TestDatasetAndExport:
 
     def test_dataframe_to_csv_bytes_empty(self) -> None:
         assert dataframe_to_csv_bytes(pd.DataFrame()) == b""
+
+
+class TestAnalyticsHelpers:
+    def test_query_flight_kpis(self, bi: ChatBI) -> None:
+        kpis = query_flight_kpis(bi, [])
+        assert int(kpis["total_flights"] or 0) > 0
+        assert kpis["avg_latency"] is not None
+
+    def test_aggregate_cost_by_airline(self, bi: ChatBI) -> None:
+        filtered_df = add_watchdog_columns(bi, selected_airlines=[])
+        cost_df = aggregate_cost_by_airline(filtered_df.head(200))
+        assert "total_cost_eur" in cost_df.columns
+        assert not cost_df.empty
+
+    def test_aggregate_watchdog_summary(self, bi: ChatBI) -> None:
+        filtered_df = add_watchdog_columns(bi, selected_airlines=[])
+        summary = aggregate_watchdog_summary(filtered_df.head(200))
+        assert "quality_flag" in summary.columns
+
+    def test_sum_cost_columns(self, bi: ChatBI) -> None:
+        filtered_df = add_watchdog_columns(bi, selected_airlines=[])
+        costs = sum_cost_columns(filtered_df.head(50))
+        assert costs["total_cost"] >= 0
+
+    def test_resolve_model_chain(self) -> None:
+        chain = resolve_model_chain(["mistral:7b"], default_chain=["mistral:7b", "phi4:14b"])
+        assert chain == ["mistral:7b"]

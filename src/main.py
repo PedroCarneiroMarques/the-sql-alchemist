@@ -21,11 +21,15 @@ from src.core import (
     DEFAULT_MODEL_CHAIN,
     SUGGESTED_QUESTIONS,
     add_watchdog_columns,
-    build_airline_filter,
+    aggregate_cost_by_airline,
     explain_airline_wars,
     explain_chat_result,
     explain_dashboard,
     get_airline_wars,
+    get_distinct_values,
+    query_flight_kpis,
+    resolve_model_chain,
+    default_airline_selection,
     validate_dataset,
 )
 
@@ -61,19 +65,13 @@ def print_attempt_errors(attempt_errors: list[str]) -> None:
 
 
 def print_kpis(bi: ChatBI, selected_airlines: list[str], filtered_df: pd.DataFrame) -> None:
-    filter_sql, filter_params = build_airline_filter(selected_airlines)
-    total_flights = bi.scalar(f"SELECT COUNT(*) FROM flights {filter_sql}", filter_params)
-    avg_latency = bi.scalar(f"SELECT AVG(latency_minutes) FROM flights {filter_sql}", filter_params)
-    delayed_count = bi.scalar(
-        f"SELECT COUNT(*) FROM flights {filter_sql} {'AND' if filter_sql else 'WHERE'} status = ?",
-        filter_params + ["Delayed"],
-    )
+    kpis = query_flight_kpis(bi, selected_airlines)
     total_cost = float(filtered_df["total_cost_eur"].sum()) if not filtered_df.empty else 0
 
     console.print(Panel.fit(
-        f"Total Flights: {int(total_flights or 0):,}\n"
-        f"Avg Latency: {float(avg_latency or 0):.1f} min\n"
-        f"Delayed Flights: {int(delayed_count or 0):,}\n"
+        f"Total Flights: {int(kpis['total_flights'] or 0):,}\n"
+        f"Avg Latency: {float(kpis['avg_latency'] or 0):.1f} min\n"
+        f"Delayed Flights: {int(kpis['delayed_count'] or 0):,}\n"
         f"Total Cost: €{total_cost:,.0f}",
         title="Dashboard KPIs",
         border_style="cyan",
@@ -81,17 +79,11 @@ def print_kpis(bi: ChatBI, selected_airlines: list[str], filtered_df: pd.DataFra
 
 
 def run_cli(bi: ChatBI) -> None:
-    all_airlines = bi.dataframe(
-        "SELECT DISTINCT airline FROM flights WHERE airline IS NOT NULL ORDER BY airline"
-    )["airline"].tolist()
+    all_airlines = get_distinct_values(bi, "airline")
+    all_destinations = get_distinct_values(bi, "destination")
 
-    all_destinations = bi.dataframe(
-        "SELECT DISTINCT destination FROM flights WHERE destination IS NOT NULL ORDER BY destination"
-    )["destination"].tolist()
-
-    available_models = bi.available_models()
-    selected_chain = [m for m in DEFAULT_MODEL_CHAIN if m in available_models] or DEFAULT_MODEL_CHAIN
-    selected_airlines = all_airlines[:3] if len(all_airlines) >= 3 else all_airlines
+    selected_chain = resolve_model_chain(bi.available_models())
+    selected_airlines = default_airline_selection(all_airlines)
 
     console.print(Panel.fit(
         "The SQL Alchemist CLI is ready.\n"
@@ -136,15 +128,7 @@ def run_cli(bi: ChatBI) -> None:
                 cancellation_cost=DEFAULT_CANCELLATION_COST,
             )
 
-            cost_by_airline = (
-                filtered_df.groupby("airline", as_index=False)
-                .agg(
-                    total_cost_eur=("total_cost_eur", "sum"),
-                    delay_cost_eur=("delay_cost_eur", "sum"),
-                    cancellation_cost_eur=("cancellation_cost_eur", "sum"),
-                )
-                .sort_values("total_cost_eur", ascending=False)
-            ) if not filtered_df.empty else pd.DataFrame()
+            cost_by_airline = aggregate_cost_by_airline(filtered_df)
 
             print_kpis(bi, selected_airlines, filtered_df)
             console.print(explain_dashboard(filtered_df, cost_by_airline))
@@ -204,7 +188,7 @@ def main() -> None:
         return
 
     try:
-        bi = ChatBI(str(DATA_PATH), DEFAULT_MODEL_CHAIN)
+        bi = ChatBI(str(DATA_PATH))
         validate_dataset(bi)
         run_cli(bi)
     except Exception as exc:

@@ -75,9 +75,8 @@ BLOCKED_SQL_TOKENS = (
 
 
 class ChatBI:
-    def __init__(self, csv_path: str, model_chain: list[str]):
+    def __init__(self, csv_path: str):
         self.csv_path = csv_path
-        self.model_chain = model_chain
         self.client = Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT)
         self.db = duckdb.connect(database=":memory:")
         self._load_table()
@@ -576,3 +575,76 @@ def dataframe_to_csv_bytes(df: pd.DataFrame) -> bytes:
     if df is None or df.empty:
         return b""
     return df.to_csv(index=False).encode("utf-8")
+
+
+def get_distinct_values(bi: ChatBI, column: str) -> list[str]:
+    allowed = {"airline", "destination", "origin", "status"}
+    if column not in allowed:
+        raise ValueError(f"Unsupported column for distinct lookup: {column}")
+    return bi.dataframe(
+        f"SELECT DISTINCT {column} FROM flights WHERE {column} IS NOT NULL ORDER BY {column}"
+    )[column].tolist()
+
+
+def query_flight_kpis(bi: ChatBI, selected_airlines: list[str]) -> dict[str, Any]:
+    filter_sql, filter_params = build_airline_filter(selected_airlines)
+    return {
+        "total_flights": bi.scalar(f"SELECT COUNT(*) FROM flights {filter_sql}", filter_params),
+        "avg_latency": bi.scalar(f"SELECT AVG(latency_minutes) FROM flights {filter_sql}", filter_params),
+        "delayed_count": bi.scalar(
+            f"SELECT COUNT(*) FROM flights {filter_sql} {'AND' if filter_sql else 'WHERE'} status = ?",
+            filter_params + ["Delayed"],
+        ),
+    }
+
+
+def aggregate_cost_by_airline(filtered_df: pd.DataFrame) -> pd.DataFrame:
+    if filtered_df.empty:
+        return pd.DataFrame()
+    return (
+        filtered_df.groupby("airline", as_index=False)
+        .agg(
+            total_cost_eur=("total_cost_eur", "sum"),
+            delay_cost_eur=("delay_cost_eur", "sum"),
+            cancellation_cost_eur=("cancellation_cost_eur", "sum"),
+        )
+        .sort_values("total_cost_eur", ascending=False)
+    )
+
+
+def aggregate_watchdog_summary(filtered_df: pd.DataFrame) -> pd.DataFrame:
+    if filtered_df.empty:
+        return pd.DataFrame()
+    return (
+        filtered_df.groupby("quality_flag", as_index=False)
+        .agg(
+            rows=("flight_id", "count"),
+            avg_latency=("latency_minutes", "mean"),
+            total_cost_eur=("total_cost_eur", "sum"),
+        )
+    )
+
+
+def sum_cost_columns(filtered_df: pd.DataFrame) -> dict[str, float]:
+    if filtered_df.empty:
+        return {"total_cost": 0.0, "delay_cost": 0.0, "cancellation_cost": 0.0}
+    return {
+        "total_cost": float(pd.to_numeric(filtered_df["total_cost_eur"], errors="coerce").fillna(0).sum()),
+        "delay_cost": float(pd.to_numeric(filtered_df["delay_cost_eur"], errors="coerce").fillna(0).sum()),
+        "cancellation_cost": float(
+            pd.to_numeric(filtered_df["cancellation_cost_eur"], errors="coerce").fillna(0).sum()
+        ),
+    }
+
+
+def resolve_model_chain(
+    available_models: list[str],
+    default_chain: list[str] | None = None,
+) -> list[str]:
+    default_chain = default_chain or DEFAULT_MODEL_CHAIN
+    selected = [m for m in default_chain if m in available_models]
+    return selected or default_chain
+
+
+def default_airline_selection(all_airlines: list[str], limit: int = 3) -> list[str]:
+    return all_airlines[:limit] if len(all_airlines) >= limit else all_airlines
