@@ -30,8 +30,12 @@ chab_ai_engine/
 ├── tests/
 │   ├── conftest.py
 │   └── test_core.py
+├── .github/
+│   └── workflows/
+│       └── ci.yml
 ├── config.py
 ├── main.py              # convenience CLI entry point
+├── .env.example
 ├── .gitignore
 ├── LICENSE
 ├── README.md
@@ -220,6 +224,13 @@ Configuration lives in `config.py` at the project root. Values can be overridden
 Example:
 
 ```bash
+cp .env.example .env
+# edit .env as needed
+```
+
+Or export variables directly:
+
+```bash
 export DATA_PATH="data/flights.csv"
 export OLLAMA_HOST="http://localhost:11434"
 export DEFAULT_MODEL_CHAIN="mistral:7b,phi4:14b,qwen2.5-coder:14b"
@@ -285,7 +296,9 @@ Run the automated test suite from the project root:
 python3 -m pytest tests/ -v
 ```
 
-The tests cover SQL safety, keyword fallback, watchdog logic, Airline Wars, explanations, and CSV export helpers. They do not require a running Ollama instance.
+The tests cover SQL safety (including `sqlparse` guardrails), keyword fallback, few-shot prompts, watchdog logic, Airline Wars, explanations, and CSV export helpers. They do not require a running Ollama instance.
+
+CI runs automatically on GitHub Actions for Python 3.11 and 3.12 on every push and pull request to `main`.
 
 ## Screenshots and Images
 
@@ -322,7 +335,8 @@ Examples:
 To improve stability:
 
 - model output is sanitized before execution
-- only `SELECT` queries are accepted
+- only `SELECT` / `WITH ... SELECT` queries are accepted
+- table whitelist (`flights` only) and forbidden keywords (`UNION`, `DROP`, etc.)
 - non-safe SQL is rejected
 - invalid model output triggers keyword-based fallback SQL
 - execution errors are surfaced in the UI

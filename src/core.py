@@ -7,7 +7,9 @@ from typing import Any, Optional
 
 import duckdb
 import pandas as pd
+import sqlparse
 from ollama import Client
+from sqlparse.tokens import Keyword
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -73,6 +75,104 @@ BLOCKED_SQL_TOKENS = (
     "LOAD ", "CALL ", "EXPORT ", "VACUUM ", "PRAGMA ",
 )
 
+ALLOWED_TABLES = frozenset({"flights"})
+
+FORBIDDEN_SQL_KEYWORDS = frozenset({
+    "UNION", "INTERSECT", "EXCEPT", "INSERT", "UPDATE", "DELETE",
+    "DROP", "ALTER", "CREATE", "REPLACE", "COPY", "ATTACH", "DETACH",
+    "INSTALL", "LOAD", "CALL", "EXPORT", "VACUUM", "PRAGMA", "INTO",
+})
+
+FEW_SHOT_EXAMPLES: list[tuple[str, str]] = [
+    (
+        "Which airlines have the highest average latency?",
+        "SELECT airline, ROUND(AVG(latency_minutes), 2) AS avg_latency "
+        "FROM flights GROUP BY airline ORDER BY avg_latency DESC LIMIT 200",
+    ),
+    (
+        "How many flights were cancelled by airline?",
+        "SELECT airline, COUNT(*) AS cancelled_flights FROM flights "
+        "WHERE status = 'Cancelled' GROUP BY airline ORDER BY cancelled_flights DESC LIMIT 200",
+    ),
+    (
+        "What is the distribution of flight statuses?",
+        "SELECT status, COUNT(*) AS total_flights FROM flights "
+        "GROUP BY status ORDER BY total_flights DESC LIMIT 200",
+    ),
+    (
+        "Which routes have the highest average delay?",
+        "SELECT origin, destination, ROUND(AVG(latency_minutes), 2) AS avg_latency "
+        "FROM flights WHERE status IN ('Delayed', 'Cancelled') "
+        "GROUP BY origin, destination ORDER BY avg_latency DESC LIMIT 200",
+    ),
+    (
+        "Show the top 10 most expensive disrupted flights.",
+        "SELECT flight_id, airline, destination, latency_minutes, status, "
+        "(CASE WHEN status = 'Delayed' THEN latency_minutes * 50 "
+        "WHEN status = 'Cancelled' THEN 200 ELSE 0 END) AS estimated_cost "
+        "FROM flights WHERE status IN ('Delayed', 'Cancelled') "
+        "ORDER BY estimated_cost DESC LIMIT 10",
+    ),
+]
+
+
+def _extract_cte_names(sql: str) -> set[str]:
+    names = set(re.findall(r"\bWITH\s+([a-zA-Z_][a-zA-Z0-9_]*)", sql, flags=re.IGNORECASE))
+    names.update(re.findall(r",\s*([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(", sql, flags=re.IGNORECASE))
+    return {name.lower() for name in names}
+
+
+def _extract_referenced_tables(sql: str) -> set[str]:
+    tables: set[str] = set()
+    patterns = (
+        r"\bFROM\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+        r"\bJOIN\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, sql, flags=re.IGNORECASE):
+            tables.add(match.group(1).lower())
+    return tables
+
+
+def validate_sql_query(sql: str) -> tuple[bool, str]:
+    if not sql or not sql.strip():
+        return False, "empty query"
+
+    if ";" in sql:
+        return False, "multi-statement queries are not allowed"
+
+    statements = sqlparse.parse(sql)
+    if len(statements) != 1:
+        return False, "only a single statement is allowed"
+
+    statement = statements[0]
+    first_token = statement.token_first(skip_cm=True)
+    if first_token is None:
+        return False, "empty statement"
+
+    first_word = first_token.value.upper()
+    if first_word not in {"SELECT", "WITH"}:
+        return False, "only SELECT queries are allowed"
+
+    for token in statement.flatten():
+        if token.ttype is Keyword and token.value.upper() in FORBIDDEN_SQL_KEYWORDS:
+            return False, f"forbidden keyword: {token.value.upper()}"
+
+    sql_upper = sql.upper()
+    if any(token in sql_upper for token in BLOCKED_SQL_TOKENS):
+        return False, "query contains blocked SQL operation"
+
+    referenced_tables = _extract_referenced_tables(sql)
+    if not referenced_tables:
+        return False, "no table reference found"
+
+    allowed_refs = ALLOWED_TABLES | _extract_cte_names(sql)
+    disallowed = referenced_tables - allowed_refs
+    if disallowed:
+        return False, f"table not allowed: {', '.join(sorted(disallowed))}"
+
+    return True, ""
+
 
 class ChatBI:
     def __init__(self, csv_path: str):
@@ -117,12 +217,8 @@ class ChatBI:
         return cleaned
 
     def _is_safe_query(self, sql: str) -> bool:
-        sql_upper = sql.upper().strip()
-        if not sql_upper.startswith("SELECT "):
-            return False
-        if ";" in sql:
-            return False
-        return not any(token in sql_upper for token in BLOCKED_SQL_TOKENS)
+        ok, _ = validate_sql_query(sql)
+        return ok
 
     def _ensure_limit(self, sql: str, default_limit: int = 200) -> str:
         if re.search(r"\bLIMIT\s+\d+\b", sql, flags=re.IGNORECASE):
@@ -130,6 +226,10 @@ class ChatBI:
         return f"{sql} LIMIT {default_limit}"
 
     def _build_prompt(self, question: str) -> str:
+        examples = "\n\n".join(
+            f"Question: {example_q}\nSQL: {example_sql}"
+            for example_q, example_sql in FEW_SHOT_EXAMPLES
+        )
         return f"""
 You are a DuckDB SQL generator.
 
@@ -144,6 +244,11 @@ Columns:
 - arrival_time
 - latency_minutes
 - status
+
+Status values: On-Time, Delayed, Cancelled
+
+Examples:
+{examples}
 
 User question:
 {question}

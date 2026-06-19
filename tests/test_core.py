@@ -23,6 +23,7 @@ from src.core import (
     safe_sorted_top_n_records,
     sum_cost_columns,
     validate_dataset,
+    validate_sql_query,
 )
 
 
@@ -34,9 +35,38 @@ class TestChatBISqlSafety:
     def test_is_safe_query_accepts_select(self, bi: ChatBI) -> None:
         assert bi._is_safe_query("SELECT airline FROM flights") is True
 
+    def test_is_safe_query_accepts_with_cte(self, bi: ChatBI) -> None:
+        sql = (
+            "WITH delayed AS (SELECT * FROM flights WHERE status = 'Delayed') "
+            "SELECT airline, COUNT(*) AS delayed_flights FROM delayed GROUP BY airline"
+        )
+        assert bi._is_safe_query(sql) is True
+
     def test_is_safe_query_rejects_mutations(self, bi: ChatBI) -> None:
         assert bi._is_safe_query("DELETE FROM flights") is False
         assert bi._is_safe_query("SELECT 1; DROP TABLE flights") is False
+
+    def test_is_safe_query_rejects_union(self, bi: ChatBI) -> None:
+        sql = "SELECT airline FROM flights UNION SELECT airline FROM secrets"
+        assert bi._is_safe_query(sql) is False
+
+    def test_is_safe_query_rejects_unknown_table(self, bi: ChatBI) -> None:
+        assert bi._is_safe_query("SELECT * FROM secrets") is False
+
+    def test_validate_sql_query_messages(self) -> None:
+        ok, reason = validate_sql_query("SELECT * FROM flights")
+        assert ok is True
+        assert reason == ""
+
+        ok, reason = validate_sql_query("SELECT * FROM flights UNION SELECT * FROM flights")
+        assert ok is False
+        assert "forbidden keyword" in reason
+
+    def test_build_prompt_includes_few_shot_examples(self, bi: ChatBI) -> None:
+        prompt = bi._build_prompt("test question")
+        assert "Which airlines have the highest average latency?" in prompt
+        assert "Status values: On-Time, Delayed, Cancelled" in prompt
+        assert "test question" in prompt
 
     def test_ensure_limit_appends_default(self, bi: ChatBI) -> None:
         sql = "SELECT * FROM flights"
