@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
 import sys
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -31,9 +34,19 @@ from src.core import (
     resolve_model_chain,
     default_airline_selection,
     validate_dataset,
+    write_dataframe_csv,
 )
 
 console = Console()
+EXPORTS_DIR = PROJECT_ROOT / "exports"
+
+
+@dataclass
+class CliSession:
+    selected_airlines: list[str]
+    selected_chain: list[str]
+    last_export_df: pd.DataFrame | None = None
+    last_export_name: str = "query_result"
 
 
 def print_dataframe(df: pd.DataFrame, title: str = "Results", max_rows: int = 20) -> None:
@@ -78,25 +91,191 @@ def print_kpis(bi: ChatBI, selected_airlines: list[str], filtered_df: pd.DataFra
     ))
 
 
+def print_numbered_options(options: list[str], title: str) -> None:
+    console.print(f"[bold]{title}[/bold]")
+    for index, option in enumerate(options, start=1):
+        console.print(f"  {index}. {option}")
+
+
+def remember_export(session: CliSession, df: pd.DataFrame, name: str) -> None:
+    if df is not None and not df.empty:
+        session.last_export_df = df
+        session.last_export_name = name
+
+
+def parse_selection(raw: str, options: list[str]) -> list[str]:
+    value = raw.strip()
+    if not value or value.lower() == "all":
+        return list(options)
+    if value.lower() == "none":
+        return []
+
+    selected: list[str] = []
+    for part in re.split(r"[,;]", value):
+        token = part.strip()
+        if not token:
+            continue
+        if token.isdigit():
+            index = int(token) - 1
+            if 0 <= index < len(options):
+                selected.append(options[index])
+            continue
+        matches = [option for option in options if option.lower() == token.lower()]
+        if matches:
+            selected.append(matches[0])
+    return list(dict.fromkeys(selected))
+
+
+def prompt_list_selection(options: list[str], title: str, allow_multiple: bool = True) -> list[str]:
+    if not options:
+        return []
+
+    print_numbered_options(options, title)
+    hint = "comma-separated numbers or names" if allow_multiple else "number or name"
+    extra = " ('all' = select all, 'none' = clear)" if allow_multiple else ""
+    raw = Prompt.ask(f"Choose ({hint}){extra}", default="1" if not allow_multiple else "")
+    selected = parse_selection(raw, options)
+    if allow_multiple:
+        return selected
+    return selected[:1]
+
+
+def prompt_single_selection(options: list[str], title: str, default_index: int = 0) -> str | None:
+    if not options:
+        return None
+    print_numbered_options(options, title)
+    default = str(default_index + 1)
+    raw = Prompt.ask("Choose", default=default)
+    selected = parse_selection(raw, options)
+    return selected[0] if selected else options[default_index]
+
+
+def handle_filter(session: CliSession, all_airlines: list[str]) -> None:
+    console.print(
+        f"[dim]Current filter:[/dim] "
+        f"{', '.join(session.selected_airlines) if session.selected_airlines else 'all airlines'}"
+    )
+    session.selected_airlines = prompt_list_selection(all_airlines, "Select airlines")
+    if session.selected_airlines:
+        console.print(f"[green]Filter updated:[/green] {', '.join(session.selected_airlines)}")
+    else:
+        console.print("[green]Filter cleared:[/green] all airlines")
+
+
+def handle_export(session: CliSession, filename: str | None = None) -> None:
+    if session.last_export_df is None or session.last_export_df.empty:
+        console.print("[yellow]Nothing to export yet. Run a query or /dashboard first.[/yellow]")
+        return
+
+    if filename:
+        output_name = filename if filename.endswith(".csv") else f"{filename}.csv"
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_name = f"{session.last_export_name}_{timestamp}.csv"
+
+    output_path = EXPORTS_DIR / output_name
+    try:
+        write_dataframe_csv(session.last_export_df, output_path)
+        console.print(f"[green]Exported {len(session.last_export_df):,} rows to[/green] {output_path}")
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+
+
+def handle_wars(
+    bi: ChatBI,
+    session: CliSession,
+    all_airlines: list[str],
+    all_destinations: list[str],
+    args: list[str],
+) -> None:
+    if len(all_airlines) < 2 or not all_destinations:
+        console.print("[yellow]Not enough data for Airline Wars.[/yellow]")
+        return
+
+    wars_pool = session.selected_airlines if session.selected_airlines else all_airlines
+
+    if len(args) >= 3:
+        airline_a, airline_b, destination = args[0], args[1], args[2]
+    else:
+        airline_a = prompt_single_selection(wars_pool, "Airline A", default_index=0)
+        airline_b_options = [airline for airline in wars_pool if airline != airline_a]
+        if not airline_b_options:
+            airline_b_options = [airline for airline in all_airlines if airline != airline_a]
+        airline_b = prompt_single_selection(airline_b_options, "Airline B", default_index=0)
+        destination = prompt_single_selection(all_destinations, "Destination", default_index=0)
+
+    if not airline_a or not airline_b or not destination:
+        console.print("[yellow]Airline Wars cancelled.[/yellow]")
+        return
+
+    wars_df = get_airline_wars(
+        bi=bi,
+        airline_a=airline_a,
+        airline_b=airline_b,
+        selected_destination=destination,
+        delay_cost_per_minute=DEFAULT_DELAY_COST_PER_MINUTE,
+        cancellation_cost=DEFAULT_CANCELLATION_COST,
+        selected_airlines=session.selected_airlines or None,
+    )
+
+    console.print(explain_airline_wars(wars_df, airline_a, airline_b, destination))
+    print_dataframe(wars_df, title="Airline Wars", max_rows=10)
+    remember_export(session, wars_df, "airline_wars")
+    console.print("[dim]Tip: use /export to save this result as CSV.[/dim]")
+
+
+def handle_dashboard(bi: ChatBI, session: CliSession) -> None:
+    filtered_df = add_watchdog_columns(
+        bi,
+        selected_airlines=session.selected_airlines,
+        delay_cost_per_minute=DEFAULT_DELAY_COST_PER_MINUTE,
+        cancellation_cost=DEFAULT_CANCELLATION_COST,
+    )
+    cost_by_airline = aggregate_cost_by_airline(filtered_df)
+
+    print_kpis(bi, session.selected_airlines, filtered_df)
+    console.print(explain_dashboard(filtered_df, cost_by_airline))
+    print_dataframe(cost_by_airline, title="Cost of Chaos", max_rows=10)
+
+    watchdog_cols = [
+        "flight_id", "airline", "destination", "latency_minutes",
+        "quality_flag", "quality_score", "total_cost_eur",
+    ]
+    existing_watchdog_cols = [c for c in watchdog_cols if c in filtered_df.columns]
+    watchdog_preview = filtered_df[existing_watchdog_cols]
+    print_dataframe(watchdog_preview, title="Watchdog Preview", max_rows=15)
+
+    remember_export(session, filtered_df, "dashboard")
+    console.print("[dim]Tip: use /export to save the dashboard view as CSV.[/dim]")
+
+
 def run_cli(bi: ChatBI) -> None:
     all_airlines = get_distinct_values(bi, "airline")
     all_destinations = get_distinct_values(bi, "destination")
 
-    selected_chain = resolve_model_chain(bi.available_models())
-    selected_airlines = default_airline_selection(all_airlines)
+    session = CliSession(
+        selected_airlines=default_airline_selection(all_airlines),
+        selected_chain=resolve_model_chain(bi.available_models()),
+    )
 
     console.print(Panel.fit(
         "The SQL Alchemist CLI is ready.\n"
         "Type a natural-language question, or use one of the commands below:\n"
         "  /help        Show commands\n"
         "  /suggest     Show suggested questions\n"
+        "  /filter      Choose airlines for dashboard and wars\n"
         "  /dashboard   Show KPI summary + Watchdog\n"
-        "  /wars        Show Airline Wars snapshot\n"
+        "  /wars        Interactive Airline Wars comparison\n"
+        "  /export      Save last result to exports/\n"
         "  /models      Show active model chain\n"
         "  /quit        Exit",
         title="Neural Flight Bridge CLI",
         border_style="green",
     ))
+    console.print(
+        f"[dim]Active airline filter:[/dim] "
+        f"{', '.join(session.selected_airlines) if session.selected_airlines else 'all airlines'}"
+    )
 
     while True:
         user_input = Prompt.ask("[bold blue]The Alchemist[/bold blue]").strip()
@@ -106,7 +285,11 @@ def run_cli(bi: ChatBI) -> None:
             break
 
         if user_input == "/help":
-            console.print("Use /suggest, /dashboard, /wars, /models, or ask a question in plain English.")
+            console.print(
+                "Commands: /suggest, /filter, /dashboard, /wars, /export, /models.\n"
+                "Quick wars: /wars AirlineA AirlineB Destination\n"
+                "Quick export: /export my_file.csv"
+            )
             continue
 
         if user_input == "/suggest":
@@ -116,66 +299,37 @@ def run_cli(bi: ChatBI) -> None:
 
         if user_input == "/models":
             console.print("Active model chain:")
-            for model in selected_chain:
+            for model in session.selected_chain:
                 console.print(f"- {model}")
             continue
 
+        if user_input == "/filter":
+            handle_filter(session, all_airlines)
+            continue
+
         if user_input == "/dashboard":
-            filtered_df = add_watchdog_columns(
-                bi,
-                selected_airlines=selected_airlines,
-                delay_cost_per_minute=DEFAULT_DELAY_COST_PER_MINUTE,
-                cancellation_cost=DEFAULT_CANCELLATION_COST,
-            )
-
-            cost_by_airline = aggregate_cost_by_airline(filtered_df)
-
-            print_kpis(bi, selected_airlines, filtered_df)
-            console.print(explain_dashboard(filtered_df, cost_by_airline))
-            print_dataframe(cost_by_airline, title="Cost of Chaos", max_rows=10)
-
-            watchdog_cols = [
-                "flight_id", "airline", "destination", "latency_minutes",
-                "quality_flag", "quality_score", "total_cost_eur",
-            ]
-            existing_watchdog_cols = [c for c in watchdog_cols if c in filtered_df.columns]
-            print_dataframe(
-                filtered_df[existing_watchdog_cols],
-                title="Watchdog Preview",
-                max_rows=15,
-            )
+            handle_dashboard(bi, session)
             continue
 
-        if user_input == "/wars":
-            if len(all_airlines) < 2 or not all_destinations:
-                console.print("[yellow]Not enough data for Airline Wars.[/yellow]")
-                continue
-
-            wars_pool = selected_airlines if selected_airlines else all_airlines
-            airline_a = wars_pool[0]
-            airline_b = wars_pool[1] if len(wars_pool) > 1 else all_airlines[1]
-            destination = all_destinations[0]
-
-            wars_df = get_airline_wars(
-                bi=bi,
-                airline_a=airline_a,
-                airline_b=airline_b,
-                selected_destination=destination,
-                delay_cost_per_minute=DEFAULT_DELAY_COST_PER_MINUTE,
-                cancellation_cost=DEFAULT_CANCELLATION_COST,
-                selected_airlines=selected_airlines or None,
-            )
-
-            console.print(explain_airline_wars(wars_df, airline_a, airline_b, destination))
-            print_dataframe(wars_df, title="Airline Wars", max_rows=10)
+        if user_input.startswith("/wars"):
+            args = user_input.split()[1:]
+            handle_wars(bi, session, all_airlines, all_destinations, args)
             continue
 
-        response = bi.ask_with_fallback(user_input, selected_chain)
+        if user_input.startswith("/export"):
+            parts = user_input.split(maxsplit=1)
+            filename = parts[1].strip() if len(parts) > 1 else None
+            handle_export(session, filename)
+            continue
+
+        response = bi.ask_with_fallback(user_input, session.selected_chain)
 
         if response["success"]:
             console.print(Panel.fit(response["sql"], title=f"SQL via {response['model']}", border_style="magenta"))
             console.print(explain_chat_result(user_input, response["data"]))
             print_dataframe(response["data"], title="Query Result", max_rows=20)
+            remember_export(session, response["data"], "query_result")
+            console.print("[dim]Tip: use /export to save this result as CSV.[/dim]")
             print_attempt_errors(response["attempt_errors"])
         else:
             console.print(f"[red]{response['error']}[/red]")

@@ -253,8 +253,11 @@ python3 main.py
 In the terminal:
 
 - ask questions in plain English
-- use `/dashboard`, `/wars`, `/suggest`, `/models`, or `/help`
+- use `/filter`, `/dashboard`, `/wars`, `/export`, `/suggest`, `/models`, or `/help`
+- quick wars: `/wars AirlineA AirlineB Destination`
 - type `quit`, `exit`, or `q` to leave
+
+Exported CSV files are saved under `exports/` at the project root.
 
 ## Running the Streamlit App
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -24,6 +26,7 @@ from src.core import (
     sum_cost_columns,
     validate_dataset,
     validate_sql_query,
+    write_dataframe_csv,
 )
 
 
@@ -218,6 +221,12 @@ class TestDatasetAndExport:
 
     def test_dataframe_to_csv_bytes_empty(self) -> None:
         assert dataframe_to_csv_bytes(pd.DataFrame()) == b""
+
+    def test_write_dataframe_csv(self, tmp_path: Path) -> None:
+        df = pd.DataFrame({"airline": ["A"], "latency_minutes": [10]})
+        output = write_dataframe_csv(df, tmp_path / "out.csv")
+        assert output.exists()
+        assert "airline" in output.read_text(encoding="utf-8")
 
 
 class TestAnalyticsHelpers:

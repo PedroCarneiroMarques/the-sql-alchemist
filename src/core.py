@@ -682,6 +682,15 @@ def dataframe_to_csv_bytes(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False).encode("utf-8")
 
 
+def write_dataframe_csv(df: pd.DataFrame, path: Path | str) -> Path:
+    output_path = Path(path)
+    if df is None or df.empty:
+        raise ValueError("Cannot export an empty dataframe")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(dataframe_to_csv_bytes(df))
+    return output_path
+
+
 def get_distinct_values(bi: ChatBI, column: str) -> list[str]:
     allowed = {"airline", "destination", "origin", "status"}
     if column not in allowed:
