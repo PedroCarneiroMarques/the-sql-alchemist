@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chab-ai-engine"
+version = "0.1.0"
+description = "Local BI assistant that turns natural language into DuckDB SQL"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "streamlit>=1.45",
+    "pandas>=2.2.3",
+    "duckdb>=1.2.2",
+    "plotly>=6.0.1",
+    "ollama>=0.4.7",
+    "rich>=13.9.4",
+    "sqlparse>=0.5.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.5",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

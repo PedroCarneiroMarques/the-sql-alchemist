@@ -29,10 +29,28 @@ Example models:
 - `qwen3.6:35b-a3b`
 - `deepseek-r1:8b`
 
+## Development / testing
+
+- `pytest` — automated test suite (`pip install -e ".[dev]"` or `requirements-dev.txt`).
+
 ## Installation
+
+Runtime only (CLI, Streamlit, Docker):
 
 ```bash
 python3 -m pip install -r requirements.txt
+```
+
+Development with tests:
+
+```bash
+python3 -m pip install -r requirements-dev.txt
+```
+
+Or install directly from `pyproject.toml`:
+
+```bash
+python3 -m pip install -e ".[dev]"
 ```
 
 ## Optional Ollama setup

@@ -40,8 +40,10 @@ chab_ai_engine/
 ├── .env.example
 ├── .gitignore
 ├── LICENSE
+├── pyproject.toml
 ├── README.md
-└── requirements.txt
+├── requirements.txt
+└── requirements-dev.txt
 ```
 
 ### Architecture
@@ -186,6 +188,12 @@ From the project root:
 git clone https://github.com/PedroCarneiroMarques/the-sql-alchemist.git
 cd the-sql-alchemist
 python3 -m pip install -r requirements.txt
+```
+
+For development and tests:
+
+```bash
+python3 -m pip install -r requirements-dev.txt
 ```
 
 ## Ollama Setup
@@ -486,19 +494,11 @@ The app will try the configured fallback chain and then use keyword-based SQL if
 
 ## Dependencies
 
-Project dependencies are listed in:
+Runtime dependencies are listed in `requirements.txt` and `pyproject.toml`. Development extras (including `pytest`) are in `requirements-dev.txt` (`pip install -e ".[dev]"`).
 
-```text
-requirements.txt
-```
+Additional dependency notes are documented in `docs/DEPENDENCIES.md`.
 
-Additional dependency notes are documented in:
-
-```text
-docs/DEPENDENCIES.md
-```
-
-Core libraries currently used include DuckDB, Ollama, Streamlit, Plotly, Pandas, Rich, and pytest.
+Core runtime libraries: DuckDB, Ollama, Streamlit, Plotly, Pandas, Rich, and sqlparse. Development: pytest.
 
 ## Notebook
 
