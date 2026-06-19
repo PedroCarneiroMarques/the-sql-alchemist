@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import duckdb
 import pandas as pd
@@ -762,3 +763,99 @@ def resolve_model_chain(
 
 def default_airline_selection(all_airlines: list[str], limit: int = 3) -> list[str]:
     return all_airlines[:limit] if len(all_airlines) >= limit else all_airlines
+
+
+ChartKind = Literal["bar", "line", "pie", "none"]
+
+PRIMARY_METRIC_COLUMNS = (
+    "estimated_cost",
+    "avg_latency",
+    "cancelled_flights",
+    "total_flights",
+    "total_cost_eur",
+    "latency_minutes",
+)
+
+
+@dataclass(frozen=True)
+class ChartSpec:
+    kind: ChartKind
+    x: str | None = None
+    y: str | None = None
+    color: str | None = None
+    title: str = ""
+
+
+def _categorical_columns(df: pd.DataFrame) -> list[str]:
+    return df.select_dtypes(include=["object", "string", "category"]).columns.tolist()
+
+
+def _numeric_columns(df: pd.DataFrame) -> list[str]:
+    return df.select_dtypes(include="number").columns.tolist()
+
+
+def _pick_primary_metric(numeric_cols: list[str]) -> str | None:
+    for column in PRIMARY_METRIC_COLUMNS:
+        if column in numeric_cols:
+            return column
+    return numeric_cols[0] if numeric_cols else None
+
+
+def recommend_chart(df: pd.DataFrame) -> ChartSpec:
+    if df is None or df.empty:
+        return ChartSpec(kind="none")
+
+    numeric_cols = _numeric_columns(df)
+    if not numeric_cols:
+        return ChartSpec(kind="none")
+
+    entity_col = detect_entity_column(df)
+    categorical_cols = _categorical_columns(df)
+    metric = _pick_primary_metric([col for col in numeric_cols if col != "flight_id"])
+
+    if "status" in df.columns and metric and df["status"].nunique() <= 6 and len(df) <= 20:
+        if entity_col == "status" or categorical_cols == ["status"]:
+            return ChartSpec(
+                kind="pie",
+                x="status",
+                y=metric,
+                title=f"{metric.replace('_', ' ').title()} by status",
+            )
+
+    if "latency_minutes" in numeric_cols and "flight_id" in df.columns and len(df) > 3:
+        color = entity_col if entity_col and entity_col not in {"flight_id"} else None
+        return ChartSpec(
+            kind="line",
+            x="flight_id",
+            y="latency_minutes",
+            color=color,
+            title="Latency by flight",
+        )
+
+    if metric and entity_col and entity_col != metric:
+        return ChartSpec(
+            kind="bar",
+            x=entity_col,
+            y=metric,
+            title=f"{metric.replace('_', ' ').title()} by {entity_col.replace('_', ' ').title()}",
+        )
+
+    if categorical_cols and metric:
+        x_col = categorical_cols[0]
+        if x_col != metric:
+            return ChartSpec(
+                kind="bar",
+                x=x_col,
+                y=metric,
+                title=f"{metric.replace('_', ' ').title()} by {x_col.replace('_', ' ').title()}",
+            )
+
+    if metric and len(df) > 1:
+        return ChartSpec(
+            kind="line",
+            x=df.columns[0],
+            y=metric,
+            title=f"{metric.replace('_', ' ').title()} trend",
+        )
+
+    return ChartSpec(kind="none")

@@ -29,6 +29,7 @@ from src.core import (
     get_airline_wars,
     get_distinct_values,
     query_flight_kpis,
+    recommend_chart,
     resolve_model_chain,
     default_airline_selection,
     sum_cost_columns,
@@ -69,6 +70,26 @@ def render_csv_download(df: pd.DataFrame, label: str, filename: str, key: str) -
     )
 
 
+def render_auto_chart(df: pd.DataFrame, key: str) -> None:
+    spec = recommend_chart(df)
+    if spec.kind == "none" or not spec.x or not spec.y:
+        return
+
+    preview = df.head(20)
+    st.subheader("Auto Chart")
+    st.caption(spec.title)
+
+    if spec.kind == "bar":
+        fig = px.bar(preview, x=spec.x, y=spec.y, color=spec.color, title=spec.title)
+    elif spec.kind == "line":
+        fig = px.line(preview, x=spec.x, y=spec.y, color=spec.color, title=spec.title)
+    else:
+        fig = px.pie(preview, names=spec.x, values=spec.y, title=spec.title)
+
+    fig.update_layout(height=400, margin=dict(l=20, r=20, t=50, b=20))
+    st.plotly_chart(fig, use_container_width=True, key=key)
+
+
 def render_chat_history() -> None:
     for i, item in enumerate(st.session_state.chat_history):
         with st.chat_message("user"):
@@ -89,6 +110,7 @@ def render_chat_history() -> None:
                     filename=f"chat_result_{item.get('model', 'query')}.csv",
                     key=f"history_csv_{i}",
                 )
+                render_auto_chart(item["data"], key=f"history_chart_{i}")
             else:
                 st.error(item.get("error", "Unknown error"))
                 if item.get("attempt_errors"):
@@ -442,11 +464,10 @@ with tab2:
                     filename=f"chat_result_{response['model']}.csv",
                     key=f"chat_csv_{len(st.session_state.chat_history)}",
                 )
-
-                numeric_cols = response["data"].select_dtypes(include="number").columns.tolist()
-                if numeric_cols:
-                    st.subheader("Auto Chart")
-                    st.bar_chart(response["data"][numeric_cols].head(20))
+                render_auto_chart(
+                    response["data"],
+                    key=f"chat_chart_{len(st.session_state.chat_history)}",
+                )
 
                 if response["attempt_errors"]:
                     with st.expander("Earlier failed attempts"):

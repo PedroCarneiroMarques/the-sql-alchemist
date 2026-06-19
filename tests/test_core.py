@@ -19,6 +19,7 @@ from src.core import (
     explain_dashboard,
     get_airline_wars,
     query_flight_kpis,
+    recommend_chart,
     resolve_model_chain,
     safe_get,
     safe_sorted_first_record,
@@ -254,3 +255,35 @@ class TestAnalyticsHelpers:
     def test_resolve_model_chain(self) -> None:
         chain = resolve_model_chain(["mistral:7b"], default_chain=["mistral:7b", "phi4:14b"])
         assert chain == ["mistral:7b"]
+
+
+class TestChartRecommendation:
+    def test_recommend_bar_for_entity_metric(self) -> None:
+        df = pd.DataFrame({"airline": ["A", "B"], "avg_latency": [10.0, 20.0]})
+        spec = recommend_chart(df)
+        assert spec.kind == "bar"
+        assert spec.x == "airline"
+        assert spec.y == "avg_latency"
+
+    def test_recommend_pie_for_status_distribution(self) -> None:
+        df = pd.DataFrame({"status": ["On-Time", "Delayed"], "total_flights": [100, 50]})
+        spec = recommend_chart(df)
+        assert spec.kind == "pie"
+        assert spec.x == "status"
+        assert spec.y == "total_flights"
+
+    def test_recommend_line_for_flight_latency(self) -> None:
+        df = pd.DataFrame(
+            {
+                "flight_id": [1, 2, 3, 4],
+                "airline": ["A", "A", "B", "B"],
+                "latency_minutes": [5.0, 10.0, 15.0, 20.0],
+            }
+        )
+        spec = recommend_chart(df)
+        assert spec.kind == "line"
+        assert spec.x == "flight_id"
+        assert spec.y == "latency_minutes"
+
+    def test_recommend_none_for_empty(self) -> None:
+        assert recommend_chart(pd.DataFrame()).kind == "none"

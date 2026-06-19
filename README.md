@@ -283,7 +283,7 @@ The Streamlit app currently includes:
 - fallback model execution chain
 - generated SQL preview
 - results table rendering
-- automatic charting for numeric outputs
+- automatic charting for numeric chat results (bar, line, or pie based on data shape)
 - suggested prompts
 - business impact controls in the sidebar
 - global airline filters
