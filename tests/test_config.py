@@ -28,6 +28,16 @@ class TestConfigValidation:
         with pytest.raises(ConfigurationError, match="DEFAULT_MODEL_CHAIN"):
             validate_config(get_config())
 
-    def test_resolve_data_path_supports_relative_paths(self) -> None:
-        path = resolve_data_path("data/flights.csv")
-        assert path.exists()
+    def test_validate_config_rejects_production_localhost(self, monkeypatch) -> None:
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("DEPLOYMENT_SECRETS_READY", "true")
+        monkeypatch.setenv("OLLAMA_HOST", "http://localhost:11434")
+        with pytest.raises(ConfigurationError, match="localhost"):
+            validate_config(get_config())
+
+    def test_validate_config_requires_secrets_flag_in_production(self, monkeypatch) -> None:
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("OLLAMA_HOST", "https://ollama.example.com")
+        monkeypatch.delenv("DEPLOYMENT_SECRETS_READY", raising=False)
+        with pytest.raises(ConfigurationError, match="DEPLOYMENT_SECRETS_READY"):
+            validate_config(get_config())

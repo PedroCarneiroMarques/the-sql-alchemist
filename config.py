@@ -67,6 +67,19 @@ def get_config() -> dict[str, Any]:
     if not ui_locale.startswith("pt"):
         ui_locale = "en"
 
+    app_env = os.getenv("APP_ENV", "development").lower().strip()
+    if app_env not in {"development", "production"}:
+        app_env = "development"
+
+    deployment_secrets_ready = os.getenv("DEPLOYMENT_SECRETS_READY", "").lower().strip() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+    ollama_api_key = os.getenv("OLLAMA_API_KEY", "").strip()
+
     return {
         "OLLAMA_HOST": ollama_host,
         "OLLAMA_TIMEOUT": ollama_timeout,
@@ -80,6 +93,9 @@ def get_config() -> dict[str, Any]:
         "LOG_LEVEL": log_level,
         "LOG_TO_FILE": log_to_file,
         "UI_LOCALE": ui_locale,
+        "APP_ENV": app_env,
+        "DEPLOYMENT_SECRETS_READY": deployment_secrets_ready,
+        "OLLAMA_API_KEY": ollama_api_key,
     }
 
 
@@ -117,6 +133,16 @@ def validate_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
 
     if cfg["UI_LOCALE"] not in {"en", "pt"}:
         errors.append("UI_LOCALE must be 'en' or 'pt'")
+
+    if cfg.get("APP_ENV") == "production":
+        host = cfg["OLLAMA_HOST"].lower()
+        if "localhost" in host or "127.0.0.1" in host:
+            errors.append("OLLAMA_HOST must not point to localhost when APP_ENV=production")
+        if not cfg.get("DEPLOYMENT_SECRETS_READY"):
+            errors.append(
+                "Set DEPLOYMENT_SECRETS_READY=true after injecting production secrets "
+                "(see docs/DEPLOYMENT.md)"
+            )
 
     if errors:
         raise ConfigurationError("; ".join(errors))

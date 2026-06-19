@@ -80,6 +80,7 @@ class TestChatBISqlSafety:
         assert "Which airlines have the highest average latency?" in prompt
         assert "Status values: On-Time, Delayed, Cancelled" in prompt
         assert "departure_time_of_day" in prompt
+        assert "day_of_week" in prompt
         assert "route (derived" in prompt
         assert "test question" in prompt
 
@@ -103,6 +104,8 @@ class TestKeywordFallback:
             ("how many flights total", "GROUP BY status"),
             ("which routes have highest delay", "GROUP BY route"),
             ("delays by time of day", "departure_time_of_day"),
+            ("delays by day of week", "day_of_week"),
+            ("average latency by month", "departure_month"),
         ],
     )
     def test_keyword_fallback_sql(self, bi: ChatBI, question: str, expected_fragment: str) -> None:
@@ -262,6 +265,16 @@ class TestDatasetAndExport:
         )
         assert values.issubset({"Morning", "Afternoon", "Evening", "Night"})
         assert len(values) > 1
+
+    def test_calendar_columns_exist(self, bi: ChatBI) -> None:
+        columns = set(bi.get_columns())
+        assert "day_of_week" in columns
+        assert "departure_month" in columns
+        assert "departure_year" in columns
+
+    def test_day_of_week_is_populated(self, bi: ChatBI) -> None:
+        values = bi.dataframe("SELECT DISTINCT day_of_week FROM flights")["day_of_week"].tolist()
+        assert len(values) >= 5
 
     def test_run_stored_chat_sql_reexecutes_valid_query(self, bi: ChatBI) -> None:
         sql = "SELECT airline FROM flights LIMIT 3"

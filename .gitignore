@@ -19,6 +19,7 @@ env/
 # Streamlit / secrets
 .streamlit/secrets.toml
 .env
+.env.production
 
 # IDEs
 .vscode/

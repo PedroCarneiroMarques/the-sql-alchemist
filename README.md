@@ -128,8 +128,8 @@ The `flights` table is loaded from CSV and enriched at query time with derived a
 - `airline`
 - `origin`
 - `destination`
-- `departure_time` (HH:MM)
-- `arrival_time` (HH:MM)
+- `departure_date`, `arrival_date` (YYYY-MM-DD)
+- `departure_time`, `arrival_time` (HH:MM)
 - `latency_minutes`
 - `status`
 
@@ -139,6 +139,7 @@ The `flights` table is loaded from CSV and enriched at query time with derived a
 - `departure_hour`, `departure_minute`, `arrival_hour`, `arrival_minute` — parsed from time strings
 - `departure_time_of_day` — `Morning`, `Afternoon`, `Evening`, or `Night`
 - `scheduled_duration_minutes` — scheduled block time between departure and arrival (overnight-aware)
+- `day_of_week`, `departure_month`, `departure_year` — calendar analytics from `departure_date`
 
 Supported status values include:
 
@@ -146,9 +147,13 @@ Supported status values include:
 - `Delayed`
 - `Cancelled`
 
-The dataset has been expanded with more realistic records to improve aggregate analysis, filtering, and routing comparisons.
+The dataset has been expanded with more realistic records to improve aggregate analysis, filtering, routing comparisons, and seasonal patterns.
 
-The CSV stores clock times only (no calendar dates), so day-of-week and month analysis would require adding date fields to the source file in a future release.
+Regenerate calendar dates after replacing the CSV with:
+
+```bash
+python3 scripts/enrich_flights_dates.py
+```
 
 ## Main Features
 
@@ -268,6 +273,9 @@ Configuration lives in `config.py` at the project root. Values can be overridden
 | `LOG_LEVEL` | `INFO` | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_TO_FILE` | `true` | Write logs to `logs/chab_ai_engine.log` |
 | `UI_LOCALE` | `en` | UI language: `en` or `pt` (Streamlit sidebar can override per session) |
+| `APP_ENV` | `development` | `development` or `production` (stricter validation in production) |
+| `DEPLOYMENT_SECRETS_READY` | unset | Set to `true` in production after secrets are injected |
+| `OLLAMA_API_KEY` | unset | Optional API key for authenticated Ollama endpoints |
 | `DEFAULT_DELAY_COST_PER_MINUTE` | `50` | Delay cost per minute (€) |
 | `DEFAULT_CANCELLATION_COST` | `200` | Fixed cancellation cost (€) |
 
@@ -392,6 +400,12 @@ While the stack is running:
 | Streamlit + optional Ollama | `python -m src.health --http --ollama` |
 
 Docker Compose configures an app healthcheck against the Streamlit endpoint. Override runtime settings by copying `.env.example` to `.env` and adjusting values to match the `environment` block in `docker-compose.yml`.
+
+For production, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and `docker-compose.prod.yml`.
+
+## CI and GitHub
+
+CI runs on every push/PR to `main`. If `git push` fails with a `workflow` scope error, follow [docs/GITHUB_SETUP.md](docs/GITHUB_SETUP.md).
 
 ## Streamlit Features
 
@@ -596,8 +610,9 @@ The project currently includes:
 
 Possible next improvements:
 
-- add calendar dates to the CSV for day-of-week and seasonal analysis
-- production secrets management (e.g. external env injection)
+- remote Ollama authentication via `OLLAMA_API_KEY`
+- automated screenshot refresh in CI
+- additional airline datasets
 
 ## License
 

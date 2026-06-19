@@ -125,7 +125,9 @@ REQUIRED_COLUMNS = {
     "airline",
     "origin",
     "destination",
+    "departure_date",
     "departure_time",
+    "arrival_date",
     "arrival_time",
     "latency_minutes",
     "status",
@@ -139,6 +141,9 @@ DERIVED_COLUMNS = {
     "arrival_minute",
     "departure_time_of_day",
     "scheduled_duration_minutes",
+    "day_of_week",
+    "departure_month",
+    "departure_year",
 }
 
 TIME_OF_DAY_VALUES = ("Morning", "Afternoon", "Evening", "Night")
@@ -151,6 +156,8 @@ SUGGESTED_QUESTIONS = [
     "Which routes have the highest average delay?",
     "What is the average latency by departure time of day?",
     "Which routes have the highest cancellation rate?",
+    "Which day of the week has the most delayed flights?",
+    "What is the average latency by month?",
     "What is the estimated total cost by airline?",
     "Which destinations have the most delayed flights?",
     "Show the top 10 most expensive disrupted flights.",
@@ -170,7 +177,9 @@ WITH raw AS (
             'airline': 'VARCHAR',
             'origin': 'VARCHAR',
             'destination': 'VARCHAR',
+            'departure_date': 'DATE',
             'departure_time': 'VARCHAR',
+            'arrival_date': 'DATE',
             'arrival_time': 'VARCHAR',
             'latency_minutes': 'DOUBLE',
             'status': 'VARCHAR'
@@ -191,7 +200,9 @@ SELECT
     airline,
     origin,
     destination,
+    departure_date,
     departure_time,
+    arrival_date,
     arrival_time,
     latency_minutes,
     status,
@@ -210,7 +221,10 @@ SELECT
         WHEN (arrival_hour * 60 + arrival_minute) >= (departure_hour * 60 + departure_minute)
             THEN (arrival_hour * 60 + arrival_minute) - (departure_hour * 60 + departure_minute)
         ELSE (arrival_hour * 60 + arrival_minute) + 1440 - (departure_hour * 60 + departure_minute)
-    END AS scheduled_duration_minutes
+    END AS scheduled_duration_minutes,
+    dayname(CAST(departure_date AS DATE)) AS day_of_week,
+    MONTH(CAST(departure_date AS DATE)) AS departure_month,
+    YEAR(CAST(departure_date AS DATE)) AS departure_year
 FROM parsed
 """
 
@@ -263,6 +277,17 @@ FEW_SHOT_EXAMPLES: list[tuple[str, str]] = [
         "COUNT(*) AS flights "
         "FROM flights GROUP BY route HAVING COUNT(*) >= 5 "
         "ORDER BY cancellation_rate_pct DESC LIMIT 200",
+    ),
+    (
+        "Which day of the week has the most delayed flights?",
+        "SELECT day_of_week, COUNT(*) AS delayed_flights, ROUND(AVG(latency_minutes), 2) AS avg_latency "
+        "FROM flights WHERE status = 'Delayed' "
+        "GROUP BY day_of_week ORDER BY delayed_flights DESC LIMIT 200",
+    ),
+    (
+        "What is the average latency by month?",
+        "SELECT departure_month, ROUND(AVG(latency_minutes), 2) AS avg_latency, COUNT(*) AS flights "
+        "FROM flights GROUP BY departure_month ORDER BY departure_month LIMIT 200",
     ),
     (
         "Show the top 10 most expensive disrupted flights.",
@@ -403,14 +428,15 @@ Columns:
 - airline
 - origin
 - destination
-- departure_time (HH:MM string from CSV)
-- arrival_time (HH:MM string from CSV)
+- departure_date, arrival_date (calendar dates)
+- departure_time, arrival_time (HH:MM strings)
 - latency_minutes
 - status
 - route (derived: origin → destination)
 - departure_hour, departure_minute, arrival_hour, arrival_minute (parsed from times)
 - departure_time_of_day (Morning, Afternoon, Evening, Night)
 - scheduled_duration_minutes (scheduled block time, handles overnight flights)
+- day_of_week, departure_month, departure_year (derived from departure_date)
 
 Status values: On-Time, Delayed, Cancelled
 Time-of-day values: Morning, Afternoon, Evening, Night
@@ -455,6 +481,12 @@ Rules:
     def _keyword_fallback_sql(self, question: str) -> str:
         q = question.lower()
 
+        if "month" in q and any(k in q for k in ("latency", "average", "avg", "delay", "delayed")):
+            return (
+                "SELECT departure_month, ROUND(AVG(latency_minutes), 2) AS avg_latency, COUNT(*) AS flights "
+                "FROM flights GROUP BY departure_month ORDER BY departure_month"
+            )
+
         if any(k in q for k in ("average", "avg", "mean")) and "latency" in q:
             return (
                 "SELECT airline, ROUND(AVG(latency_minutes), 2) AS avg_latency "
@@ -482,6 +514,16 @@ Rules:
                 "ROUND(AVG(latency_minutes), 2) AS avg_latency "
                 "FROM flights WHERE status = 'Delayed' "
                 "GROUP BY departure_time_of_day ORDER BY delayed_flights DESC"
+            )
+
+        if any(k in q for k in ("day of week", "weekday")) or (
+            "week" in q and any(k in q for k in ("day", "delayed", "delay", "latency"))
+        ):
+            return (
+                "SELECT day_of_week, COUNT(*) AS delayed_flights, "
+                "ROUND(AVG(latency_minutes), 2) AS avg_latency "
+                "FROM flights WHERE status = 'Delayed' "
+                "GROUP BY day_of_week ORDER BY delayed_flights DESC"
             )
 
         if any(k in q for k in ("delay", "delayed", "late")):

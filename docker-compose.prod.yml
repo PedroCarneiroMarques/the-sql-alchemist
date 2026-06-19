@@ -1,0 +1,11 @@
+# Production overlay — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Requires .env.production (copy from .env.production.example).
+
+services:
+  app:
+    env_file:
+      - .env.production
+    environment:
+      APP_ENV: production
