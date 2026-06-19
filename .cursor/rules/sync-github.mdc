@@ -1,0 +1,25 @@
+---
+description: Commit and push completed work to GitHub after each task
+alwaysApply: true
+---
+
+# Sync changes to GitHub
+
+After completing a user-requested task that modifies the codebase:
+
+1. Run `git status` and `git diff` to review what changed.
+2. Stage only relevant project files (never `.env`, credentials, or secrets).
+3. Create a concise commit message focused on **why** the change was made.
+4. Push to `origin` on the current branch (`git push origin HEAD`).
+5. Confirm success with `git status` and share the commit hash or branch state with the user.
+
+## Exceptions
+
+- Do **not** commit or push if the user explicitly says not to.
+- Do **not** commit if there are no file changes.
+- Do **not** force-push to `main`/`master`.
+- If push fails (auth, conflicts, hooks), report the error and what the user needs to do.
+
+## Commit style
+
+Follow existing messages: short imperative summary, e.g. "Refactor shared BI logic into core module".
