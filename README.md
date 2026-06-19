@@ -39,9 +39,12 @@ chab_ai_engine/
 ├── notebooks/
 │   └── main.ipynb
 ├── scripts/
-│   └── capture_screenshots.py
+│   ├── capture_screenshots.py
+│   └── docker-entrypoint.sh
 ├── src/
 │   ├── core.py          # shared BI engine (ChatBI, analytics, explanations)
+│   ├── health.py        # deployment health checks
+│   ├── i18n.py          # EN/PT UI strings
 │   ├── main.py          # CLI interface
 │   └── app.py           # Streamlit interface
 ├── tests/
@@ -370,6 +373,26 @@ docker compose down
 
 Exported CSV files and application logs are written to `exports/` and `logs/` on the host via volume mounts.
 
+### Health checks
+
+Before the Streamlit container starts, the entrypoint runs:
+
+```bash
+python -m src.health --startup
+```
+
+This validates configuration and confirms that `DATA_PATH` exists.
+
+While the stack is running:
+
+| Check | Command / URL |
+|-------|----------------|
+| Streamlit HTTP health | `http://localhost:8501/_stcore/health` |
+| Config + dataset | `python -m src.health --startup` |
+| Streamlit + optional Ollama | `python -m src.health --http --ollama` |
+
+Docker Compose configures an app healthcheck against the Streamlit endpoint. Override runtime settings by copying `.env.example` to `.env` and adjusting values to match the `environment` block in `docker-compose.yml`.
+
 ## Streamlit Features
 
 The Streamlit app currently includes:
@@ -574,7 +597,7 @@ The project currently includes:
 Possible next improvements:
 
 - add calendar dates to the CSV for day-of-week and seasonal analysis
-- deployment-ready configuration management
+- production secrets management (e.g. external env injection)
 
 ## License
 

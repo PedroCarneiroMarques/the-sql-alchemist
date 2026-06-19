@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -13,8 +14,19 @@ DEFAULT_MODEL_CHAIN_RAW = (
 )
 
 
+class ConfigurationError(ValueError):
+    """Raised when required deployment settings are missing or invalid."""
+
+
 def _parse_model_chain(raw: str) -> list[str]:
     return [model.strip() for model in raw.split(",") if model.strip()]
+
+
+def resolve_data_path(raw_path: str) -> Path:
+    path = Path(raw_path)
+    if not path.is_absolute():
+        path = BASE_DIR / path
+    return path.resolve()
 
 
 def get_config() -> dict[str, Any]:
@@ -69,3 +81,44 @@ def get_config() -> dict[str, Any]:
         "LOG_TO_FILE": log_to_file,
         "UI_LOCALE": ui_locale,
     }
+
+
+def validate_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    cfg = dict(config or get_config())
+    errors: list[str] = []
+
+    data_path = resolve_data_path(cfg["DATA_PATH"])
+    cfg["DATA_PATH"] = str(data_path)
+
+    if not data_path.exists():
+        errors.append(f"DATA_PATH does not exist: {data_path}")
+    elif not data_path.is_file():
+        errors.append(f"DATA_PATH is not a file: {data_path}")
+
+    parsed_host = urlparse(cfg["OLLAMA_HOST"])
+    if parsed_host.scheme not in {"http", "https"} or not parsed_host.netloc:
+        errors.append(f"OLLAMA_HOST must be a valid HTTP URL: {cfg['OLLAMA_HOST']}")
+
+    if cfg["OLLAMA_TIMEOUT"] <= 0:
+        errors.append("OLLAMA_TIMEOUT must be greater than 0")
+
+    if cfg["DEFAULT_DELAY_COST_PER_MINUTE"] < 0:
+        errors.append("DEFAULT_DELAY_COST_PER_MINUTE must be zero or positive")
+
+    if cfg["DEFAULT_CANCELLATION_COST"] < 0:
+        errors.append("DEFAULT_CANCELLATION_COST must be zero or positive")
+
+    if not cfg["DEFAULT_MODEL_CHAIN"]:
+        errors.append("DEFAULT_MODEL_CHAIN must include at least one model")
+
+    for profile_name, chain in cfg["MODEL_PROFILES"].items():
+        if not chain:
+            errors.append(f"MODEL_PROFILES['{profile_name}'] must include at least one model")
+
+    if cfg["UI_LOCALE"] not in {"en", "pt"}:
+        errors.append("UI_LOCALE must be 'en' or 'pt'")
+
+    if errors:
+        raise ConfigurationError("; ".join(errors))
+
+    return cfg

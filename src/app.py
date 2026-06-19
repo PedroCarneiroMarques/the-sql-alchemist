@@ -12,6 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from config import validate_config
 from src.i18n import (
     SUPPORTED_LOCALES,
     configure_locale,
@@ -210,6 +211,13 @@ def render_suggested_questions() -> Optional[str]:
 
 
 bi = load_bi(str(DATA_PATH))
+
+try:
+    validate_config()
+except Exception as exc:
+    configure_locale()
+    st.error(f"❌ {exc}")
+    st.stop()
 
 if bi is None:
     configure_locale()

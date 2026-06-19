@@ -17,6 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from config import validate_config
 from src.i18n import configure_locale, t, watchdog_label
 from src.core import (
     ChatBI,
@@ -399,8 +400,10 @@ def main() -> None:
     args = parser.parse_args()
     configure_locale(args.lang)
 
-    if not DATA_PATH.exists():
-        console.print(f"[red]{t('cli.data_not_found', path=DATA_PATH)}[/red]")
+    try:
+        validate_config()
+    except Exception as exc:
+        console.print(f"[red]{t('cli.startup_failed', error=exc)}[/red]")
         return
 
     try:
