@@ -11,6 +11,19 @@ Both interfaces share the same analytics engine in `src/core.py`.
 
 The project uses local LLMs via Ollama to generate SQL, applies fallback logic when model output fails, and provides interactive analytics for airline performance, disruption cost, and operational quality.
 
+## Screenshots
+
+| Dashboard | Natural-language chat | Airline Wars |
+|-----------|----------------------|--------------|
+| ![Dashboard overview](docs/images/dashboard-overview.png) | ![Chat analysis](docs/images/chat-analysis.png) | ![Airline Wars comparison](docs/images/airline-wars.png) |
+
+To refresh screenshots after UI changes:
+
+```bash
+pip install playwright && playwright install chromium
+python3 scripts/capture_screenshots.py
+```
+
 ## Project Structure
 
 ```text
@@ -19,10 +32,14 @@ chab_ai_engine/
 │   └── flights.csv
 ├── docs/
 │   ├── images/
-│   │   └── ... screenshots and supporting visuals ...
+│   │   ├── dashboard-overview.png
+│   │   ├── chat-analysis.png
+│   │   └── airline-wars.png
 │   └── DEPENDENCIES.md
 ├── notebooks/
 │   └── main.ipynb
+├── scripts/
+│   └── capture_screenshots.py
 ├── src/
 │   ├── core.py          # shared BI engine (ChatBI, analytics, explanations)
 │   ├── main.py          # CLI interface
@@ -77,6 +94,8 @@ This makes the project usable even when a model is unavailable, returns invalid 
 The CLI version in `src/main.py` provides a lightweight local chat workflow for asking flight-related questions directly in the terminal.
 
 ### 2. Streamlit Web App
+
+![Streamlit dashboard](docs/images/dashboard-overview.png)
 
 The Streamlit app in `src/app.py` extends the project with:
 
@@ -381,20 +400,15 @@ export LOG_TO_FILE=false
 
 ## Screenshots and Images
 
-Project screenshots and supporting visuals should be stored in:
+Screenshots live in `docs/images/` and are embedded at the top of this README.
 
-```text
-docs/images/
-```
+| File | Description |
+|------|-------------|
+| `dashboard-overview.png` | KPIs, charts, watchdog, and cost analytics |
+| `chat-analysis.png` | Natural-language query with SQL, table, and auto-chart |
+| `airline-wars.png` | Head-to-head airline comparison on a route |
 
-Suggested naming convention:
-
-- `docs/images/dashboard-overview.png`
-- `docs/images/chat-analysis.png`
-- `docs/images/airline-wars.png`
-- `docs/images/project-structure.png`
-
-After adding screenshots, reference them in the README with standard Markdown image syntax.
+Regenerate with `python3 scripts/capture_screenshots.py` (requires Playwright).
 
 ## Typical Questions to Ask
 
@@ -542,9 +556,9 @@ The project currently includes:
 
 Possible next improvements:
 
-- richer SQL guardrails
-- configurable model profiles
-- screenshot-rich documentation
+- enrich data model with parsed timestamps and route dimensions
+- chat history memory optimization in Streamlit
+- unified PT/EN localization
 - deployment-ready configuration management
 
 ## License
